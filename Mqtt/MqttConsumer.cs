@@ -202,9 +202,11 @@ public sealed class MqttConsumer : IAsyncDisposable
     /// <summary>解析 ISO8601 时间戳字符串为 UTC DateTime，解析失败则使用当前 UTC 时间。</summary>
     private DateTime ParseTimestamp(string ts)
     {
+        // RoundtripKind 不能与 AssumeUniversal / AssumeLocal 同时使用（.NET 限制）。
+        // sensor-simulator 推送的时间戳已包含时区偏移（如 +00:00），RoundtripKind 会正确保留其 Kind，
+        // 调用 ToUniversalTime() 统一转为 UTC 即可。
         if (DateTime.TryParse(ts, null,
-            System.Globalization.DateTimeStyles.RoundtripKind |
-            System.Globalization.DateTimeStyles.AssumeUniversal,
+            System.Globalization.DateTimeStyles.RoundtripKind,
             out var dt))
         {
             return dt.ToUniversalTime();

@@ -25,11 +25,12 @@ FROM mcr.microsoft.com/dotnet/runtime:10.0
 
 WORKDIR /app
 
-# 安装调试工具：ping / curl / telnet
+# 安装调试工具：ping / curl / telnet / mosquitto_pub / mosquitto_sub
 RUN apt-get update && apt-get install -y --no-install-recommends \
       iputils-ping \
       curl \
       telnet \
+      mosquitto-clients \
     && rm -rf /var/lib/apt/lists/*
 
 # 复制发布产物（含 TrendDb_API.dll 及 appsettings.json）
