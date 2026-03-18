@@ -1,0 +1,22 @@
+# Build outputs
+bin/
+obj/
+out/
+
+# .NET user secrets and local settings
+appsettings.Development.json
+*.user
+*.suo
+
+# Visual Studio / Rider
+.vs/
+.idea/
+*.DotSettings.user
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Logs
+*.log
+logs/

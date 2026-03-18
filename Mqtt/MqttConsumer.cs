@@ -1,0 +1,215 @@
+using System.Collections.Concurrent;
+using System.Text;
+using System.Text.Json;
+using Microsoft.Extensions.Options;
+using MQTTnet;
+using MQTTnet.Client;
+using WriteToTrendDb.Configuration;
+using WriteToTrendDb.Models;
+
+namespace WriteToTrendDb.Mqtt;
+
+/// <summary>
+/// MQTT 消费者。
+/// 订阅配置的主题，解析 sensor-simulator-mapper 推送的批量 JSON 数组，
+/// 根据 TagMappings 过滤测点并缓存最新值，供 Worker 定时批量写入 TrendDB5。
+/// </summary>
+public sealed class MqttConsumer : IAsyncDisposable
+{
+    private readonly ILogger<MqttConsumer> _logger;
+    private readonly MqttSettings _mqttSettings;
+
+    // Source → Target 映射表（消费测点名 → 回写测点名）
+    private readonly Dictionary<string, string> _nameMapping;
+
+    // 线程安全的内存缓冲区：Target 测点名 → 最新测点数据
+    // 每次 Flush 后清空，保证写入的是最新值
+    private readonly ConcurrentDictionary<string, TagData> _buffer = new(StringComparer.OrdinalIgnoreCase);
+
+    private IMqttClient? _mqttClient;
+    private bool _disposed;
+
+    public MqttConsumer(IOptions<AppSettings> options, ILogger<MqttConsumer> logger)
+    {
+        _logger = logger;
+        _mqttSettings = options.Value.Mqtt;
+
+        _nameMapping = options.Value.TagMappings
+            .Where(m => !string.IsNullOrWhiteSpace(m.Source) && !string.IsNullOrWhiteSpace(m.Target))
+            .ToDictionary(m => m.Source, m => m.Target, StringComparer.OrdinalIgnoreCase);
+
+        _logger.LogInformation(
+            "MqttConsumer 初始化：{Count} 条测点映射，订阅主题：{Topics}",
+            _nameMapping.Count,
+            string.Join(", ", _mqttSettings.Topics));
+    }
+
+    /// <summary>启动 MQTT 连接并订阅主题，非阻塞，断线自动重连。</summary>
+    public async Task StartAsync(CancellationToken ct)
+    {
+        var factory = new MqttFactory();
+        _mqttClient = factory.CreateMqttClient();
+
+        _mqttClient.ApplicationMessageReceivedAsync += OnMessageReceivedAsync;
+
+        _mqttClient.ConnectedAsync += _ =>
+        {
+            _logger.LogInformation("MQTT 已连接：{Broker}:{Port}", _mqttSettings.Broker, _mqttSettings.Port);
+            return Task.CompletedTask;
+        };
+
+        _mqttClient.DisconnectedAsync += async args =>
+        {
+            _logger.LogWarning("MQTT 断开连接：{Reason}", args.ReasonString);
+            if (!ct.IsCancellationRequested)
+            {
+                await Task.Delay(TimeSpan.FromSeconds(5), ct).ConfigureAwait(false);
+                await ConnectWithRetryAsync(ct).ConfigureAwait(false);
+            }
+        };
+
+        await ConnectWithRetryAsync(ct).ConfigureAwait(false);
+    }
+
+    private async Task ConnectWithRetryAsync(CancellationToken ct)
+    {
+        while (!ct.IsCancellationRequested)
+        {
+            try
+            {
+                var optionsBuilder = new MqttClientOptionsBuilder()
+                    .WithTcpServer(_mqttSettings.Broker, _mqttSettings.Port)
+                    .WithClientId(_mqttSettings.ClientId)
+                    .WithKeepAlivePeriod(TimeSpan.FromSeconds(30))
+                    .WithCleanSession(true);
+
+                if (!string.IsNullOrEmpty(_mqttSettings.Username))
+                    optionsBuilder = optionsBuilder.WithCredentials(_mqttSettings.Username, _mqttSettings.Password);
+
+                var connectResult = await _mqttClient!
+                    .ConnectAsync(optionsBuilder.Build(), ct)
+                    .ConfigureAwait(false);
+
+                if (connectResult.ResultCode != MqttClientConnectResultCode.Success)
+                {
+                    _logger.LogWarning("MQTT 连接被拒绝：{Code}，5 秒后重试", connectResult.ResultCode);
+                    await Task.Delay(TimeSpan.FromSeconds(5), ct).ConfigureAwait(false);
+                    continue;
+                }
+
+                // 订阅所有配置的主题
+                foreach (var topic in _mqttSettings.Topics)
+                {
+                    var subOptions = new MqttClientSubscribeOptionsBuilder()
+                        .WithTopicFilter(f => f.WithTopic(topic))
+                        .Build();
+                    await _mqttClient.SubscribeAsync(subOptions, ct).ConfigureAwait(false);
+                    _logger.LogInformation("已订阅主题：{Topic}", topic);
+                }
+
+                return; // 连接并订阅成功，退出重试循环
+            }
+            catch (OperationCanceledException) when (ct.IsCancellationRequested)
+            {
+                return;
+            }
+            catch (Exception ex)
+            {
+                _logger.LogWarning(ex, "MQTT 连接失败，5 秒后重试");
+                await Task.Delay(TimeSpan.FromSeconds(5), ct).ConfigureAwait(false);
+            }
+        }
+    }
+
+    private Task OnMessageReceivedAsync(MqttApplicationMessageReceivedEventArgs args)
+    {
+        var topic = args.ApplicationMessage.Topic;
+        try
+        {
+            var payload = Encoding.UTF8.GetString(args.ApplicationMessage.PayloadSegment);
+
+            // 期望收到 JSON 数组：[{name, value, timestamp, value_state}, ...]
+            var sensors = JsonSerializer.Deserialize<List<SensorMessage>>(payload);
+            if (sensors is null || sensors.Count == 0)
+            {
+                _logger.LogDebug("主题 {Topic} 收到空消息或解析结果为空", topic);
+                return Task.CompletedTask;
+            }
+
+            var matched = 0;
+            foreach (var sensor in sensors)
+            {
+                // 只处理在映射表中配置的测点
+                if (!_nameMapping.TryGetValue(sensor.Name, out var targetName))
+                    continue;
+
+                var ts = ParseTimestamp(sensor.Timestamp);
+                _buffer[targetName] = new TagData
+                {
+                    Value = sensor.Value,
+                    TimeStamp = ts,
+                    ValueState = sensor.ValueState
+                };
+                matched++;
+            }
+
+            _logger.LogDebug(
+                "主题 {Topic}：收到 {Total} 条，命中映射 {Matched} 条，缓冲区大小 {BufSize}",
+                topic, sensors.Count, matched, _buffer.Count);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "处理 MQTT 消息时发生异常，主题：{Topic}", topic);
+        }
+
+        return Task.CompletedTask;
+    }
+
+    /// <summary>
+    /// 将缓冲区内的所有数据取出并清空，返回给 Worker 写入 TrendDB5。
+    /// 使用 TryRemove 保证线程安全。
+    /// </summary>
+    public IDictionary<string, TagData> Flush()
+    {
+        var result = new Dictionary<string, TagData>(StringComparer.OrdinalIgnoreCase);
+        foreach (var key in _buffer.Keys.ToList())
+        {
+            if (_buffer.TryRemove(key, out var td))
+                result[key] = td;
+        }
+        return result;
+    }
+
+    /// <summary>解析 ISO8601 时间戳字符串为 UTC DateTime，解析失败则使用当前 UTC 时间。</summary>
+    private DateTime ParseTimestamp(string ts)
+    {
+        if (DateTime.TryParse(ts, null,
+            System.Globalization.DateTimeStyles.RoundtripKind |
+            System.Globalization.DateTimeStyles.AssumeUniversal,
+            out var dt))
+        {
+            return dt.ToUniversalTime();
+        }
+        _logger.LogDebug("时间戳解析失败：{Ts}，使用当前 UTC 时间", ts);
+        return DateTime.UtcNow;
+    }
+
+    public async ValueTask DisposeAsync()
+    {
+        if (_disposed) return;
+        _disposed = true;
+
+        if (_mqttClient is not null)
+        {
+            try
+            {
+                await _mqttClient.DisconnectAsync().ConfigureAwait(false);
+            }
+            catch (Exception ex)
+            {
+                _logger.LogDebug(ex, "MQTT 断开连接时发生异常（忽略）");
+            }
+            _mqttClient.Dispose();
+        }
+    }
+}
