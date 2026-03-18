@@ -1,0 +1,151 @@
+# ============================================================
+# wirte-to-trenddb Kubernetes 部署文件
+#
+# 使用前需要修改的地方（搜索 TODO）：
+#   1. nodeName            → 替换为实际边缘节点名称（kubectl get nodes）
+#   2. TrendDB5 连接字符串  → 替换为生产环境真实地址/账密
+#   3. MQTT 地址           → 替换为实际 MQTT Broker 地址
+#   4. TagMappings         → 按需配置消费/回写的测点映射列表
+#   5. harbor-secret       → 若 Harbor 不需要认证可删除 imagePullSecrets
+# ============================================================
+
+# ──────────────────────────────────────────────────────────────
+# ConfigMap：存放 appsettings.json 的完整内容，挂载进容器
+# 修改配置后执行 kubectl apply -f deployment.yaml 即可生效
+# ──────────────────────────────────────────────────────────────
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: wirte-to-trenddb-config
+  namespace: default
+data:
+  appsettings.json: |
+    {
+      "Logging": {
+        "LogLevel": {
+          "Default": "Information",
+          "Microsoft.Hosting.Lifetime": "Information",
+          "WriteToTrendDb": "Information"
+        }
+      },
+
+      "TrendDb5": {
+        "ConnectionString": "Type=TrendDB5;SERVER=127.0.0.1:20010;DATABASE=db01;UID=system;PWD=luculent123@,SERVER=127.0.0.1:20020;DATABASE=db02;UID=system;PWD=luculent123@",
+        "PoolSize": 7,
+        "WriteIntervalSeconds": 5
+      },
+
+      "Mqtt": {
+        "Broker": "192.168.122.231",
+        "Port": 1884,
+        "ClientId": "trenddb-writer",
+        "Username": "",
+        "Password": "",
+        "Topics": [
+          "sensors/batch",
+          "sensors2/batch"
+        ]
+      },
+
+      "TagMappings": [
+        { "Source": "db01.tag1",  "Target": "db01.tag1"  },
+        { "Source": "db01.tag2",  "Target": "db01.tag2"  },
+        { "Source": "db01.tag3",  "Target": "db01.tag3"  },
+        { "Source": "db01.tag4",  "Target": "db01.tag4"  },
+        { "Source": "db01.tag5",  "Target": "db01.tag5"  },
+        { "Source": "db01.tag6",  "Target": "db01.tag6"  },
+        { "Source": "db01.tag7",  "Target": "db01.tag7"  },
+        { "Source": "db01.tag8",  "Target": "db01.tag8"  },
+        { "Source": "db01.tag9",  "Target": "db01.tag9"  },
+        { "Source": "db01.tag10", "Target": "db01.tag10" }
+      ]
+    }
+
+# ──────────────────────────────────────────────────────────────
+# Deployment
+# ──────────────────────────────────────────────────────────────
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: wirte-to-trenddb
+  namespace: default
+  labels:
+    app: wirte-to-trenddb
+    version: v1.0
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: wirte-to-trenddb
+  template:
+    metadata:
+      labels:
+        app: wirte-to-trenddb
+        version: v1.0
+    spec:
+      # ── 指定边缘节点 ────────────────────────────────────────
+      nodeName: cloudedge-edge-01   # TODO: 替换为实际边缘节点名（kubectl get nodes）
+
+      # ── KubeEdge 边缘节点容忍污点 ──────────────────────────
+      tolerations:
+        - key: node-role.kubernetes.io/edge
+          operator: Exists
+          effect: NoSchedule
+
+      # ── 使用宿主机网络（访问 TrendDB5 / EMQX 等物理 IP）──
+      hostNetwork: true
+      dnsPolicy: ClusterFirstWithHostNet
+
+      restartPolicy: Always
+
+      # ── 私有镜像仓库认证 ────────────────────────────────────
+      # 执行以下命令创建 Secret（若已存在可跳过）：
+      #   kubectl create secret docker-registry harbor-secret \
+      #     --docker-server=harbor.zkjgy.online \
+      #     --docker-username=<用户名> \
+      #     --docker-password=<密码> \
+      #     -n default
+      imagePullSecrets:
+        - name: harbor-secret
+
+      containers:
+        - name: wirte-to-trenddb
+          image: harbor.zkjgy.online/library/wirte-to-trenddb:latest   # TODO: 可指定具体版本如 :v1.0
+          imagePullPolicy: Always
+
+          # ── 将 ConfigMap 中的 appsettings.json 挂载到容器内 ──
+          # .NET 配置系统会自动加载 /app/appsettings.json
+          volumeMounts:
+            - name: app-config
+              mountPath: /app/appsettings.json
+              subPath: appsettings.json
+              readOnly: true
+
+          # ── 资源限制 ──────────────────────────────────────
+          resources:
+            requests:
+              cpu: 200m
+              memory: 256Mi
+            limits:
+              cpu: 1000m
+              memory: 512Mi
+
+          # ── 健康探针 ──────────────────────────────────────
+          # .NET Worker Service 无内置 HTTP 端点，使用进程存活检测
+          livenessProbe:
+            exec:
+              command:
+                - pgrep
+                - -x
+                - WriteToTrendDb
+            initialDelaySeconds: 15
+            periodSeconds: 30
+            failureThreshold: 3
+            timeoutSeconds: 5
+
+      volumes:
+        - name: app-config
+          configMap:
+            name: wirte-to-trenddb-config

@@ -29,6 +29,10 @@ public sealed class MqttConsumer : IAsyncDisposable
     private IMqttClient? _mqttClient;
     private bool _disposed;
 
+    // 标记是否已至少成功连接过一次；
+    // DisconnectedAsync 只在成功连接后才触发重连，避免与初次连接重试竞争
+    private volatile bool _hasConnectedOnce;
+
     public MqttConsumer(IOptions<AppSettings> options, ILogger<MqttConsumer> logger)
     {
         _logger = logger;
@@ -58,14 +62,27 @@ public sealed class MqttConsumer : IAsyncDisposable
             return Task.CompletedTask;
         };
 
-        _mqttClient.DisconnectedAsync += async args =>
+        // DisconnectedAsync 只负责"曾经成功连接后断线"的重连；
+        // 初次连接失败由 ConnectWithRetryAsync 的 while 循环独立处理，两条路径互不干扰。
+        _mqttClient.DisconnectedAsync += args =>
         {
             _logger.LogWarning("MQTT 断开连接：{Reason}", args.ReasonString);
-            if (!ct.IsCancellationRequested)
+
+            if (_hasConnectedOnce && !ct.IsCancellationRequested)
             {
-                await Task.Delay(TimeSpan.FromSeconds(5), ct).ConfigureAwait(false);
-                await ConnectWithRetryAsync(ct).ConfigureAwait(false);
+                // 用 CancellationToken.None 启动任务，让任务本身用 ct 感知关闭
+                _ = Task.Run(async () =>
+                {
+                    try
+                    {
+                        await Task.Delay(TimeSpan.FromSeconds(5), ct).ConfigureAwait(false);
+                        await ConnectWithRetryAsync(ct).ConfigureAwait(false);
+                    }
+                    catch (OperationCanceledException) { /* 关闭时忽略 */ }
+                }, CancellationToken.None);
             }
+
+            return Task.CompletedTask;
         };
 
         await ConnectWithRetryAsync(ct).ConfigureAwait(false);
@@ -107,6 +124,8 @@ public sealed class MqttConsumer : IAsyncDisposable
                     _logger.LogInformation("已订阅主题：{Topic}", topic);
                 }
 
+                // 标记已成功连接，允许 DisconnectedAsync 触发断线重连
+                _hasConnectedOnce = true;
                 return; // 连接并订阅成功，退出重试循环
             }
             catch (OperationCanceledException) when (ct.IsCancellationRequested)

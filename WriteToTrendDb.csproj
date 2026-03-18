@@ -10,20 +10,36 @@
   </PropertyGroup>
 
   <ItemGroup>
+    <!-- Worker Service 宿主框架（Sdk.Worker 隐式引用，需显式声明以确保跨环境还原） -->
+    <PackageReference Include="Microsoft.Extensions.Hosting" Version="10.0.0" />
     <!-- MQTT client -->
     <PackageReference Include="MQTTnet" Version="4.3.3.952" />
+    <!--
+      TrendDb_API.dll 内部通过 gRPC 连接 TrendDB5 服务端，需要以下依赖。
+      版本须与 TrendDb_API.dll 编译时依赖的程序集版本精确匹配：
+        Grpc.Net.Client  assembly 2.0.0.0  → NuGet 2.57.0
+        Google.Protobuf  assembly 3.22.0.0 → NuGet 3.22.4
+        Grpc.Core.Api    assembly 2.0.0.0  → NuGet 2.57.0
+    -->
+    <PackageReference Include="Grpc.Net.Client"  Version="2.57.0" />
+    <PackageReference Include="Google.Protobuf"  Version="3.22.4" />
+    <PackageReference Include="Grpc.Core.Api"    Version="2.57.0" />
   </ItemGroup>
 
-  <!-- Reference the TrendDB5 native-wrapper DLL -->
-  <ItemGroup>
+  <!--
+    TrendDB5 客户端 SDK（Windows 托管程序集）
+    - 仅在有该 DLL 的情况下引用；部署到 Linux 边缘节点时需将 lib/ 替换为 Linux 版本的 .so
+    - 编译时通过 USE_TRENDDB_SDK 条件控制（Docker build 中始终包含）
+  -->
+  <ItemGroup Condition="Exists('lib/TrendDb_API.dll')">
     <Reference Include="TrendDb_API">
       <HintPath>lib/TrendDb_API.dll</HintPath>
     </Reference>
   </ItemGroup>
 
-  <!-- Ensure TrendDb_API.dll is copied to output directory -->
+  <!-- 确保 TrendDb_API.dll 复制到输出目录 -->
   <ItemGroup>
-    <None Update="lib/TrendDb_API.dll">
+    <None Update="lib/TrendDb_API.dll" Condition="Exists('lib/TrendDb_API.dll')">
       <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
     </None>
     <None Update="appsettings.json">
