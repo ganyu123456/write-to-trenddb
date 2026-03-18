@@ -1,0 +1,13 @@
+apiVersion: v2
+name: wirte-to-trenddb
+description: 消费 MQTT 传感器数据并写入 TrendDB5 时序数据库的 .NET Worker Service
+type: application
+version: 0.1.0
+appVersion: "1.0.0"
+keywords:
+  - iot
+  - trenddb
+  - mqtt
+  - kubeedge
+maintainers:
+  - name: ganyu

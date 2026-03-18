@@ -1,0 +1,57 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "wirte-to-trenddb.fullname" . }}
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "wirte-to-trenddb.labels" . | nindent 4 }}
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      {{- include "wirte-to-trenddb.selectorLabels" . | nindent 6 }}
+  template:
+    metadata:
+      labels:
+        {{- include "wirte-to-trenddb.selectorLabels" . | nindent 8 }}
+      # 配置变更时触发 Pod 滚动更新（ConfigMap 内容变化时自动重启）
+      annotations:
+        checksum/config: {{ .Values.appSettings | toJson | sha256sum }}
+    spec:
+      {{- if .Values.nodeName }}
+      nodeName: {{ .Values.nodeName }}
+      {{- end }}
+
+      {{- with .Values.tolerations }}
+      tolerations:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+
+      hostNetwork: {{ .Values.hostNetwork }}
+      dnsPolicy: {{ .Values.dnsPolicy }}
+      restartPolicy: Always
+
+      {{- with .Values.imagePullSecrets }}
+      imagePullSecrets:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+
+      containers:
+        - name: {{ .Chart.Name }}
+          image: "{{ .Values.image.repository }}:{{ .Values.image.tag }}"
+          imagePullPolicy: {{ .Values.image.pullPolicy }}
+
+          resources:
+            {{- toYaml .Values.resources | nindent 12 }}
+
+          volumeMounts:
+            # appsettings.json 由 ConfigMap 注入，.NET 配置系统自动加载
+            - name: app-config
+              mountPath: /app/appsettings.json
+              subPath: appsettings.json
+              readOnly: true
+
+      volumes:
+        - name: app-config
+          configMap:
+            name: {{ include "wirte-to-trenddb.configmapName" . }}

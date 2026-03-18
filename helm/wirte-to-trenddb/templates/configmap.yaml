@@ -1,0 +1,12 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ include "wirte-to-trenddb.configmapName" . }}
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "wirte-to-trenddb.labels" . | nindent 4 }}
+data:
+  # appsettings.json 由 values.yaml 中的 appSettings 渲染生成
+  # .NET 配置系统会自动从 /app/appsettings.json 加载
+  appsettings.json: |
+    {{ .Values.appSettings | toPrettyJson | nindent 4 }}

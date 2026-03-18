@@ -1,0 +1,82 @@
+# ============================================================
+# wirte-to-trenddb Helm Chart 默认配置
+# ============================================================
+
+# ── 镜像 ──────────────────────────────────────────────────
+image:
+  repository: harbor.zkjgy.online/library/wirte-to-trenddb
+  tag: latest
+  pullPolicy: Always
+
+imagePullSecrets:
+  - name: harbor-secret
+
+# ── KubeEdge 边缘节点调度 ──────────────────────────────────
+nodeName: cloudedge-edge-01
+tolerations:
+  - key: node-role.kubernetes.io/edge
+    operator: Exists
+    effect: NoSchedule
+
+# hostNetwork 使服务可直接访问节点物理 IP（TrendDB5 / EMQX）
+hostNetwork: true
+dnsPolicy: ClusterFirstWithHostNet
+
+# ── 资源限制 ──────────────────────────────────────────────
+resources:
+  requests:
+    cpu: 200m
+    memory: 256Mi
+  limits:
+    cpu: 1000m
+    memory: 512Mi
+
+# ── appsettings.json 配置内容（渲染为 ConfigMap 挂载到容器）──
+# 修改此处后执行 helm upgrade 即可，无需重建镜像
+appSettings:
+  Logging:
+    LogLevel:
+      Default: Information
+      "Microsoft.Hosting.Lifetime": Information
+      WriteToTrendDb: Information
+
+  TrendDb5:
+    # 支持多个数据库，逗号分隔多个 SERVER=...;DATABASE=...
+    ConnectionString: "Type=TrendDB5;SERVER=127.0.0.1:20010;DATABASE=db01;UID=system;PWD=luculent123@,SERVER=127.0.0.1:20020;DATABASE=db02;UID=system;PWD=luculent123@"
+    PoolSize: 7
+    WriteIntervalSeconds: 5
+
+  Mqtt:
+    Broker: "192.168.122.231"
+    Port: 1884
+    ClientId: "trenddb-writer"
+    Username: ""
+    Password: ""
+    # 订阅的 MQTT 主题列表（支持多个，对应多个 mapper 实例）
+    Topics:
+      - "sensors/batch"
+      - "sensors2/batch"
+
+  # 消费测点名（Source）→ 回写测点名（Target）映射表
+  # Source: mapper 推送的原始测点名；Target: 写入 TrendDB5 的测点名
+  TagMappings:
+    - Source: "db01.tag1"
+      Target: "db01.tag1"
+    - Source: "db01.tag2"
+      Target: "db01.tag2"
+    - Source: "db01.tag3"
+      Target: "db01.tag3"
+    - Source: "db01.tag4"
+      Target: "db01.tag4"
+    - Source: "db01.tag5"
+      Target: "db01.tag5"
+    - Source: "db01.tag6"
+      Target: "db01.tag6"
+    - Source: "db01.tag7"
+      Target: "db01.tag7"
+    - Source: "db01.tag8"
+      Target: "db01.tag8"
+    - Source: "db01.tag9"
+      Target: "db01.tag9"
+    - Source: "db01.tag10"
+      Target: "db01.tag10"

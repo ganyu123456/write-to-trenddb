@@ -110,3 +110,33 @@ steps:
       platforms:
         - linux/amd64
         - linux/arm64
+
+---
+kind: pipeline
+name: wirte-to-trenddb-helm
+type: docker
+
+depends_on:
+  - wirte-to-trenddb-manifest
+
+trigger:
+  branch:
+    - main
+  event:
+    - push
+    - tag
+
+steps:
+  - name: helm-package-push
+    image: alpine/helm:3.14.0
+    environment:
+      HARBOR_USERNAME:
+        from_secret: harbor_username
+      HARBOR_PASSWORD:
+        from_secret: harbor_password
+    commands:
+      - helm registry login harbor.zkjgy.online
+          --username $HARBOR_USERNAME
+          --password $HARBOR_PASSWORD
+      - helm package helm/wirte-to-trenddb --version 0.1.0
+      - helm push wirte-to-trenddb-0.1.0.tgz oci://harbor.zkjgy.online/library
