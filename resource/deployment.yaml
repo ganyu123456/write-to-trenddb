@@ -31,7 +31,7 @@ data:
       },
 
       "TrendDb5": {
-        "ConnectionString": "Type=TrendDB5;SERVER=127.0.0.1:20010;DATABASE=db01;UID=system;PWD=luculent123@,SERVER=127.0.0.1:20020;DATABASE=db02;UID=system;PWD=luculent123@",
+        "ConnectionString": "Type=TrendDB5;SERVER=168.168.10.95:20090;DATABASE=db01;UID=system;PWD=luculent123@",
         "PoolSize": 7,
         "WriteIntervalSeconds": 5
       },
@@ -86,7 +86,7 @@ spec:
         version: v1.0
     spec:
       # ── 指定边缘节点 ────────────────────────────────────────
-      nodeName: cloudedge-edge-01   # TODO: 替换为实际边缘节点名（kubectl get nodes）
+      nodeName: cloudedge-worker-01   # TODO: 替换为实际边缘节点名（kubectl get nodes）
 
       # ── KubeEdge 边缘节点容忍污点 ──────────────────────────
       tolerations:
@@ -126,24 +126,11 @@ spec:
           # ── 资源限制 ──────────────────────────────────────
           resources:
             requests:
-              cpu: 200m
-              memory: 256Mi
-            limits:
               cpu: 1000m
-              memory: 512Mi
-
-          # ── 健康探针 ──────────────────────────────────────
-          # .NET Worker Service 无内置 HTTP 端点，使用进程存活检测
-          livenessProbe:
-            exec:
-              command:
-                - pgrep
-                - -x
-                - WriteToTrendDb
-            initialDelaySeconds: 15
-            periodSeconds: 30
-            failureThreshold: 3
-            timeoutSeconds: 5
+              memory: 1024Mi
+            limits:
+              cpu: 1500m
+              memory: 2048Mi
 
       volumes:
         - name: app-config
