@@ -43,8 +43,9 @@ data:
         "Username": "",
         "Password": "",
         "Topics": [
-          "sensors/batch",
-          "sensors2/batch"
+          "cloud/sensors/batch",
+          "cloud/sensors2/batch",
+          "cloud/sensors3/batch"
         ]
       },
 
