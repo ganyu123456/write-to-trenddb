@@ -1,5 +1,5 @@
 # ============================================================
-# wirte-to-trenddb Kubernetes 部署文件
+# write-to-trenddb Kubernetes 部署文件
 #
 # 使用前需要修改的地方（搜索 TODO）：
 #   1. nodeName            → 替换为实际边缘节点名称（kubectl get nodes）
@@ -17,7 +17,7 @@
 apiVersion: v1
 kind: ConfigMap
 metadata:
-  name: wirte-to-trenddb-config
+  name: write-to-trenddb-config
   namespace: default
 data:
   appsettings.json: |
@@ -70,20 +70,20 @@ data:
 apiVersion: apps/v1
 kind: Deployment
 metadata:
-  name: wirte-to-trenddb
+  name: write-to-trenddb
   namespace: default
   labels:
-    app: wirte-to-trenddb
+    app: write-to-trenddb
     version: v1.0
 spec:
   replicas: 1
   selector:
     matchLabels:
-      app: wirte-to-trenddb
+      app: write-to-trenddb
   template:
     metadata:
       labels:
-        app: wirte-to-trenddb
+        app: write-to-trenddb
         version: v1.0
     spec:
       # ── 指定边缘节点 ────────────────────────────────────────
@@ -112,8 +112,8 @@ spec:
         - name: harbor-secret
 
       containers:
-        - name: wirte-to-trenddb
-          image: harbor.zkjgy.online/library/wirte-to-trenddb:latest   # TODO: 可指定具体版本如 :v1.0
+        - name: write-to-trenddb
+          image: harbor.zkjgy.online/library/write-to-trenddb:latest   # TODO: 可指定具体版本如 :v1.0
           imagePullPolicy: Always
 
           # ── 将 ConfigMap 中的 appsettings.json 挂载到容器内 ──
@@ -136,4 +136,4 @@ spec:
       volumes:
         - name: app-config
           configMap:
-            name: wirte-to-trenddb-config
+            name: write-to-trenddb-config

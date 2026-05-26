@@ -1,6 +1,6 @@
 ---
 kind: pipeline
-name: wirte-to-trenddb-amd64
+name: write-to-trenddb-amd64
 type: docker
 
 platform:
@@ -24,7 +24,7 @@ steps:
     image: plugins/docker
     settings:
       registry: harbor.zkjgy.online
-      repo: harbor.zkjgy.online/library/wirte-to-trenddb
+      repo: harbor.zkjgy.online/library/write-to-trenddb
       username:
         from_secret: harbor_username
       password:
@@ -39,7 +39,7 @@ steps:
 
 ---
 kind: pipeline
-name: wirte-to-trenddb-arm64
+name: write-to-trenddb-arm64
 type: docker
 
 platform:
@@ -63,7 +63,7 @@ steps:
     image: plugins/docker
     settings:
       registry: harbor.zkjgy.online
-      repo: harbor.zkjgy.online/library/wirte-to-trenddb
+      repo: harbor.zkjgy.online/library/write-to-trenddb
       username:
         from_secret: harbor_username
       password:
@@ -78,12 +78,12 @@ steps:
 
 ---
 kind: pipeline
-name: wirte-to-trenddb-manifest
+name: write-to-trenddb-manifest
 type: docker
 
 depends_on:
-  - wirte-to-trenddb-amd64
-  - wirte-to-trenddb-arm64
+  - write-to-trenddb-amd64
+  - write-to-trenddb-arm64
 
 volumes:
   - name: docker
@@ -105,19 +105,19 @@ steps:
         from_secret: harbor_username
       password:
         from_secret: harbor_password
-      target: harbor.zkjgy.online/library/wirte-to-trenddb:latest
-      template: harbor.zkjgy.online/library/wirte-to-trenddb:OS-ARCH
+      target: harbor.zkjgy.online/library/write-to-trenddb:latest
+      template: harbor.zkjgy.online/library/write-to-trenddb:OS-ARCH
       platforms:
         - linux/amd64
         - linux/arm64
 
 ---
 kind: pipeline
-name: wirte-to-trenddb-helm
+name: write-to-trenddb-helm
 type: docker
 
 depends_on:
-  - wirte-to-trenddb-manifest
+  - write-to-trenddb-manifest
 
 trigger:
   branch:
@@ -138,5 +138,5 @@ steps:
       - helm registry login harbor.zkjgy.online
           --username $HARBOR_USERNAME
           --password $HARBOR_PASSWORD
-      - helm package helm/wirte-to-trenddb --version 0.1.0
-      - helm push wirte-to-trenddb-0.1.0.tgz oci://harbor.zkjgy.online/library
+      - helm package helm/write-to-trenddb --version 0.1.0
+      - helm push write-to-trenddb-0.1.0.tgz oci://harbor.zkjgy.online/library

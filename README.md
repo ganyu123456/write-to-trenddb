@@ -1,4 +1,4 @@
-# wirte-to-trenddb
+# write-to-trenddb
 
 订阅 MQTT 主题，将传感器数据批量回写到 TrendDB5 时序数据库的 .NET 10 Worker Service。
 
@@ -101,7 +101,7 @@ TRENDDB5__WRITEINTERVALSECONDS=10
 ## 本地运行
 
 ```bash
-cd wirte-to-trenddb
+cd write-to-trenddb
 
 # 安装依赖
 dotnet restore
@@ -114,24 +114,24 @@ ASPNETCORE_ENVIRONMENT=Development dotnet run
 
 ```bash
 # amd64
-docker build -t wirte-to-trenddb:latest .
+docker build -t write-to-trenddb:latest .
 
 # 运行（通过环境变量覆盖配置）
 docker run -d \
   -e TRENDDB5__CONNECTIONSTRING="Type=TrendDB5;SERVER=127.0.0.1:20010;DATABASE=db01;UID=system;PWD=luculent123@" \
   -e MQTT__BROKER=192.168.122.231 \
   -e MQTT__PORT=1884 \
-  --name wirte-to-trenddb \
-  wirte-to-trenddb:latest
+  --name write-to-trenddb \
+  write-to-trenddb:latest
 ```
 
 ## CI/CD（Drone）
 
 `.drone.yml` 配置三个 Pipeline：
 
-1. `wirte-to-trenddb-amd64` — 在 amd64 Runner 构建并推送 `linux-amd64` 标签
-2. `wirte-to-trenddb-arm64` — 在 arm64 Runner 构建并推送 `linux-arm64` 标签
-3. `wirte-to-trenddb-manifest` — 合并为多架构 Manifest，打 `latest` 标签
+1. `write-to-trenddb-amd64` — 在 amd64 Runner 构建并推送 `linux-amd64` 标签
+2. `write-to-trenddb-arm64` — 在 arm64 Runner 构建并推送 `linux-arm64` 标签
+3. `write-to-trenddb-manifest` — 合并为多架构 Manifest，打 `latest` 标签
 
 触发条件：`main` 分支的 push 或 tag 事件。
 
@@ -156,7 +156,7 @@ kubectl exec -it <pod-name> -- bash
 ## 项目文件结构
 
 ```
-wirte-to-trenddb/
+write-to-trenddb/
 ├── Configuration/
 │   └── AppSettings.cs        # 配置类定义
 ├── Models/

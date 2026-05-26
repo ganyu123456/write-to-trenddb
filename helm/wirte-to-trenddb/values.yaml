@@ -1,10 +1,10 @@
 # ============================================================
-# wirte-to-trenddb Helm Chart 默认配置
+# write-to-trenddb Helm Chart 默认配置
 # ============================================================
 
 # ── 镜像 ──────────────────────────────────────────────────
 image:
-  repository: harbor.zkjgy.online/library/wirte-to-trenddb
+  repository: harbor.zkjgy.online/library/write-to-trenddb
   tag: latest
   pullPolicy: Always
 
