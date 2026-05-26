@@ -137,7 +137,7 @@ jobs:
           helm registry login harbor.zkjgy.online \
             --username $HARBOR_USERNAME \
             --password $HARBOR_PASSWORD
-          helm package helm/wirte-to-trenddb --version 0.1.0
+          helm package helm/write-to-trenddb --version 0.1.0
           helm push write-to-trenddb-0.1.0.tgz oci://harbor.zkjgy.online/library
 
       - name: Upload helm artifact
