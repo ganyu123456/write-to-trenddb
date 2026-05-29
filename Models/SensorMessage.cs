@@ -3,9 +3,25 @@ using System.Text.Json.Serialization;
 namespace WriteToTrendDb.Models;
 
 /// <summary>
-/// MQTT 消息中单个测点的值对象。
-/// 推送格式示例（字典，key 为测点名）：
-///   {"DDM.SIS.Tag01":{"value":1,"timestamp":1780041492,"state":1}, ...}
+/// MQTT 消息外层包装结构。
+/// 实际消息格式（主题 device/sis/data）：
+/// {
+///   "timestamp": 1780076839551,         ← 消息发送时间，Unix 毫秒
+///   "deviceId":  "sis-collect-dev-dy",
+///   "batchData": {
+///     "DDM.SIS.1DCS_10DCS_TDM_01": {"value":0,"timestamp":1600397002,"state":1},
+///     ...
+///   }
+/// }
+/// </summary>
+public sealed record MqttBatchMessage(
+    [property: JsonPropertyName("timestamp")] long                             Timestamp,
+    [property: JsonPropertyName("deviceId")]  string                           DeviceId,
+    [property: JsonPropertyName("batchData")] Dictionary<string, SensorValue>  BatchData
+);
+
+/// <summary>
+/// batchData 中单个测点的值对象，timestamp 为每条测点数据的采集时间，Unix 秒级。
 /// </summary>
 public sealed record SensorValue(
     [property: JsonPropertyName("value")]     double Value,

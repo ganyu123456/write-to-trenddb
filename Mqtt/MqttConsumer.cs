@@ -1,6 +1,7 @@
 using System.Collections.Concurrent;
 using System.Text;
 using System.Text.Json;
+using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.Options;
 using MQTTnet;
 using MQTTnet.Client;
@@ -33,19 +34,53 @@ public sealed class MqttConsumer : IAsyncDisposable
     // DisconnectedAsync 只在成功连接后才触发重连，避免与初次连接重试竞争
     private volatile bool _hasConnectedOnce;
 
-    public MqttConsumer(IOptions<AppSettings> options, ILogger<MqttConsumer> logger)
+    public MqttConsumer(IOptions<AppSettings> options, IConfiguration config, ILogger<MqttConsumer> logger)
     {
         _logger = logger;
         _mqttSettings = options.Value.Mqtt;
 
-        _nameMapping = options.Value.TagMappings
-            .Where(m => !string.IsNullOrWhiteSpace(m.Source) && !string.IsNullOrWhiteSpace(m.Target))
-            .ToDictionary(m => m.Source, m => m.Target, StringComparer.OrdinalIgnoreCase);
+        // 优先从 CSV 文件直接加载点表，绕开 IConfiguration 绑定，
+        // 避免十几万条 TagMappings 通过配置系统绑定时的 O(n²) 性能问题。
+        var pointsFilePath = config["PointsFilePath"];
+        if (!string.IsNullOrWhiteSpace(pointsFilePath) && File.Exists(pointsFilePath))
+        {
+            _nameMapping = LoadMappingsFromCsv(pointsFilePath);
+        }
+        else
+        {
+            // 无 CSV 文件时，回退到 appsettings.json 中的静态 TagMappings（适合少量测点）
+            _nameMapping = options.Value.TagMappings
+                .Where(m => !string.IsNullOrWhiteSpace(m.Source) && !string.IsNullOrWhiteSpace(m.Target))
+                .ToDictionary(m => m.Source, m => m.Target, StringComparer.OrdinalIgnoreCase);
+        }
 
         _logger.LogInformation(
             "MqttConsumer 初始化：{Count} 条测点映射，订阅主题：{Topics}",
             _nameMapping.Count,
             string.Join(", ", _mqttSettings.Topics));
+    }
+
+    /// <summary>
+    /// 直接从 CSV 文件读取点表，构建 Source→Target 字典。
+    /// 格式：每行 source,target（无表头），跳过空行和格式错误行。
+    /// </summary>
+    private static Dictionary<string, string> LoadMappingsFromCsv(string path)
+    {
+        var mapping = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+        foreach (var line in File.ReadLines(path))
+        {
+            var trimmed = line.AsSpan().Trim();
+            if (trimmed.IsEmpty) continue;
+
+            var comma = trimmed.IndexOf(',');
+            if (comma <= 0) continue;
+
+            var source = trimmed[..comma].Trim().ToString();
+            var target = trimmed[(comma + 1)..].Trim().ToString();
+            if (source.Length > 0 && target.Length > 0)
+                mapping[source] = target;
+        }
+        return mapping;
     }
 
     /// <summary>启动 MQTT 连接并订阅主题，非阻塞，断线自动重连。</summary>
@@ -147,18 +182,17 @@ public sealed class MqttConsumer : IAsyncDisposable
         {
             var payload = Encoding.UTF8.GetString(args.ApplicationMessage.PayloadSegment);
 
-            // 期望收到 JSON 字典：{"测点名":{"value":1,"timestamp":1780041492,"state":1}, ...}
-            var sensors = JsonSerializer.Deserialize<Dictionary<string, SensorValue>>(payload);
-            if (sensors is null || sensors.Count == 0)
+            // 消息格式：{"timestamp":<ms>,"deviceId":"...","batchData":{"测点名":{"value":...,"timestamp":<s>,"state":...},...}}
+            var msg = JsonSerializer.Deserialize<MqttBatchMessage>(payload);
+            if (msg?.BatchData is null || msg.BatchData.Count == 0)
             {
-                _logger.LogDebug("主题 {Topic} 收到空消息或解析结果为空", topic);
+                _logger.LogDebug("主题 {Topic} 收到空消息或 batchData 为空，已跳过", topic);
                 return Task.CompletedTask;
             }
 
             var matched = 0;
-            foreach (var (name, sv) in sensors)
+            foreach (var (name, sv) in msg.BatchData)
             {
-                // 只处理在映射表中配置的测点
                 if (!_nameMapping.TryGetValue(name, out var targetName))
                     continue;
 
@@ -172,8 +206,8 @@ public sealed class MqttConsumer : IAsyncDisposable
             }
 
             _logger.LogDebug(
-                "主题 {Topic}：收到 {Total} 条，命中映射 {Matched} 条，缓冲区大小 {BufSize}",
-                topic, sensors.Count, matched, _buffer.Count);
+                "主题 {Topic}（设备 {DeviceId}）：收到 {Total} 条，命中映射 {Matched} 条，缓冲区大小 {BufSize}",
+                topic, msg.DeviceId, msg.BatchData.Count, matched, _buffer.Count);
         }
         catch (Exception ex)
         {

@@ -5,40 +5,13 @@ using WriteToTrendDb.Workers;
 
 var builder = Host.CreateApplicationBuilder(args);
 
-// 若配置了 PointsFilePath，则从 CSV 文件加载点表并注入为 TagMappings 配置，
-// 覆盖 appsettings.json 中的静态 TagMappings（CSV 优先级更高）。
+// 校验点表文件是否存在（PointsFilePath 配置项指定路径）
+// 点表的实际加载由 MqttConsumer 构造函数直接完成，不经过配置绑定系统，
+// 避免十几万条 TagMappings 通过 IConfiguration 绑定时产生的性能问题。
 var pointsFilePath = builder.Configuration["PointsFilePath"];
-if (!string.IsNullOrWhiteSpace(pointsFilePath))
+if (!string.IsNullOrWhiteSpace(pointsFilePath) && !File.Exists(pointsFilePath))
 {
-    if (!File.Exists(pointsFilePath))
-    {
-        // 启动即失败，避免服务静默丢点
-        throw new FileNotFoundException($"点表文件未找到，请确认 hostPath 挂载正确：{pointsFilePath}");
-    }
-
-    var entries = new List<KeyValuePair<string, string?>>();
-    var idx = 0;
-    foreach (var line in File.ReadLines(pointsFilePath))
-    {
-        var trimmed = line.Trim();
-        if (string.IsNullOrEmpty(trimmed)) continue;
-
-        var comma = trimmed.IndexOf(',');
-        if (comma <= 0) continue; // 跳过格式错误行
-
-        var source = trimmed[..comma].Trim();
-        var target = trimmed[(comma + 1)..].Trim();
-        if (string.IsNullOrEmpty(source) || string.IsNullOrEmpty(target)) continue;
-
-        entries.Add(new($"TagMappings:{idx}:Source", source));
-        entries.Add(new($"TagMappings:{idx}:Target", target));
-        idx++;
-    }
-
-    builder.Configuration.AddInMemoryCollection(entries);
-
-    var logger = LoggerFactory.Create(b => b.AddConsole()).CreateLogger("Startup");
-    logger.LogInformation("已从点表文件加载 {Count} 条映射：{Path}", idx, pointsFilePath);
+    throw new FileNotFoundException($"点表文件未找到，请确认 hostPath 挂载正确：{pointsFilePath}");
 }
 
 // Bind the entire config root to AppSettings
