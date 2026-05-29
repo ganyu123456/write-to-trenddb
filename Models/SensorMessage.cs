@@ -3,15 +3,14 @@ using System.Text.Json.Serialization;
 namespace WriteToTrendDb.Models;
 
 /// <summary>
-/// MQTT 消息中单条传感器数据，与 sensor-simulator-mapper 推送的 JSON 数组元素对应。
-/// 推送格式示例：
-///   [{"name":"db01.tag1","value":123.45,"timestamp":"2026-03-15T08:00:00Z","value_state":1}, ...]
+/// MQTT 消息中单个测点的值对象。
+/// 推送格式示例（字典，key 为测点名）：
+///   {"DDM.SIS.Tag01":{"value":1,"timestamp":1780041492,"state":1}, ...}
 /// </summary>
-public sealed record SensorMessage(
-    [property: JsonPropertyName("name")]        string Name,
-    [property: JsonPropertyName("value")]       double Value,
-    [property: JsonPropertyName("timestamp")]   string Timestamp,
-    [property: JsonPropertyName("value_state")] int ValueState
+public sealed record SensorValue(
+    [property: JsonPropertyName("value")]     double Value,
+    [property: JsonPropertyName("timestamp")] long   Timestamp,
+    [property: JsonPropertyName("state")]     int    State
 );
 
 /// <summary>

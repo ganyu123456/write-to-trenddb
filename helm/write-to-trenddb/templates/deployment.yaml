@@ -50,8 +50,17 @@ spec:
               mountPath: /app/appsettings.json
               subPath: appsettings.json
               readOnly: true
+            # 点表 CSV 由边缘节点 hostPath 直接挂载，文件过大不适合放 ConfigMap
+            - name: points-csv
+              mountPath: {{ .Values.pointsFile.mountPath }}
+              readOnly: true
 
       volumes:
         - name: app-config
           configMap:
             name: {{ include "write-to-trenddb.configmapName" . }}
+        # hostPath 挂载节点本地点表文件，更新时只需替换文件并重启 Pod
+        - name: points-csv
+          hostPath:
+            path: {{ .Values.pointsFile.hostPath }}
+            type: File

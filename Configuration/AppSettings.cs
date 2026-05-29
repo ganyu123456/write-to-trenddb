@@ -10,8 +10,16 @@ public sealed class AppSettings
     public MqttSettings Mqtt { get; set; } = new();
 
     /// <summary>
+    /// 点表 CSV 文件路径（容器内路径）。
+    /// 每行格式：source,target（无表头）。
+    /// 启动时由 Program.cs 读取并注入为 TagMappings 配置，优先于 appsettings.json 中的静态列表。
+    /// </summary>
+    public string PointsFilePath { get; set; } = string.Empty;
+
+    /// <summary>
     /// 测点映射列表：Source 为 MQTT 消息中的测点名，Target 为写入 TrendDB5 的测点名。
     /// 只有在此列表中的 Source 测点才会被消费和回写。
+    /// 通常由 Program.cs 从 PointsFilePath CSV 文件动态填充，无需在 appsettings.json 中手写。
     /// </summary>
     public List<TagMapping> TagMappings { get; set; } = [];
 }

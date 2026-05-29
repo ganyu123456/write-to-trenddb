@@ -5,9 +5,9 @@
 ## 架构
 
 ```
-sensor-simulator-mapper
+sensor-simulator-mapper / IoT Gateway
         │
-        │ MQTT 批量消息（JSON 数组）
+        │ MQTT 批量消息（JSON 字典）
         │ Topic: sensors/batch、sensors2/batch ...
         ▼
   MqttConsumer（内存缓冲）
@@ -23,14 +23,21 @@ sensor-simulator-mapper
 
 ## MQTT 消息格式
 
-mapper 推送的消息为 JSON 数组，每个元素结构如下：
+MQTT 客户端推送的消息为 **JSON 字典**，key 为测点名，value 包含值、Unix 秒级时间戳和状态：
 
 ```json
-[
-  {"name":"db01.tag1","value":123.456,"timestamp":"2026-03-15T08:00:00Z","value_state":1},
-  {"name":"db01.tag2","value":456.789,"timestamp":"2026-03-15T08:00:00Z","value_state":1}
-]
+{
+  "DDM.SIS.1DCS_BBA01XP01": {"value": 1, "timestamp": 1780041492, "state": 1},
+  "DDM.SIS.1DCS_BBA01XP02": {"value": 0, "timestamp": 1780041574, "state": 1},
+  "DDM.SIS.1DCS_BBA02XP01": {"value": 1, "timestamp": 1780041492, "state": 0}
+}
 ```
+
+| 字段        | 类型   | 说明                              |
+|-------------|--------|-----------------------------------|
+| `value`     | double | 测点值                            |
+| `timestamp` | long   | Unix 秒级时间戳                   |
+| `state`     | int    | 质量码：`1` = Good，`0` = Bad     |
 
 ## 配置说明（appsettings.json）
 
@@ -42,7 +49,7 @@ Type=TrendDB5;SERVER=ip:port;DATABASE=db01;UID=user;PWD=pass,SERVER=ip:port;DATA
 
 - 以 `Type=TrendDB5;` 开头（程序内部会自动跳过此前缀）
 - 多个数据库之间用逗号分隔
-- `PoolSize`：连接池大小，默认 7（与 TrendDB5 原项目保持一致）
+- `PoolSize`：连接池大小，默认 7
 - `WriteIntervalSeconds`：回写间隔秒数，默认 5 秒
 
 ### MQTT 配置
@@ -58,21 +65,27 @@ Type=TrendDB5;SERVER=ip:port;DATABASE=db01;UID=user;PWD=pass,SERVER=ip:port;DATA
 }
 ```
 
-### 测点映射（TagMappings）
+### 点表文件（PointsFilePath）
 
-配置消费测点名（来自 MQTT）与回写测点名（写入 TrendDB5）的对应关系：
+测点映射通过外部 CSV 文件管理，不再写入 `appsettings.json`：
 
 ```json
-"TagMappings": [
-  { "Source": "db01.tag1", "Target": "db01.tag1" },
-  { "Source": "db01.tag2", "Target": "db02.tag2" }
-]
+"PointsFilePath": "/config/points.csv"
 ```
 
-- `Source`：MQTT 消息中 `name` 字段的值，**区分大小写**
-- `Target`：TrendDB5 中的完整测点名，必须包含数据库前缀（`dbName.tagName`）
-- 只有出现在 `TagMappings` 中的测点才会被处理，其余一律丢弃
+**CSV 格式**（无表头，每行 `source,target`）：
+
+```csv
+DDM.SIS.1DCS_BBA01XP01,DDM.SIS.1DCS_BBA01XP01
+DDM.SIS.1DCS_BBA01XP02,DDM.SIS.1DCS_BBA01XP02
+DDM.SIS.M1_FH,DDM.SIS.M1_FH
+```
+
+- `source`：MQTT 消息字典中的 key（测点名），**区分大小写**
+- `target`：TrendDB5 中的完整测点名，必须包含数据库前缀（`dbName.tagName`）
+- 只有出现在点表中的测点才会被处理，其余一律丢弃
 - 两侧名称可以不同，支持跨库回写
+- 点表文件不存在时服务**启动即失败**，避免静默丢点
 
 ## 环境变量覆盖（生产部署）
 
@@ -88,6 +101,9 @@ MQTT__PORT=1884
 
 # 覆盖回写间隔
 TRENDDB5__WRITEINTERVALSECONDS=10
+
+# 覆盖点表文件路径
+POINTSFILEPATH=/data/points.csv
 ```
 
 ## 关于 TrendDb_API.dll
@@ -95,29 +111,25 @@ TRENDDB5__WRITEINTERVALSECONDS=10
 项目依赖 `lib/TrendDb_API.dll`（来自 Luculent TrendDB5 客户端 SDK）。
 
 - 该 DLL 为 C++/CLI 托管封装，内含 `TrendDb_API.Pool` 和 `Ld.COMMON.TagValue` 等类型
-- **Windows 节点**：直接使用 `lib/TrendDb_API.dll`（已复制到项目）
-- **Linux/ARM64 节点**：需要将 Luculent 提供的 Linux 版本客户端库（`.so` 文件）放置在同一目录，并替换 `TrendDb_API.dll` 为对应平台版本
+- **Windows 节点**：直接使用 `lib/TrendDb_API.dll`
+- **Linux/ARM64 节点**：需要将 Luculent 提供的 Linux 版本客户端库（`.so` 文件）放置在同一目录，并替换为对应平台版本
 
 ## 本地运行
 
 ```bash
-cd write-to-trenddb
-
-# 安装依赖
 dotnet restore
-
-# 运行（开发环境，日志更详细）
 ASPNETCORE_ENVIRONMENT=Development dotnet run
 ```
 
 ## Docker 构建
 
 ```bash
-# amd64
+# 构建镜像
 docker build -t write-to-trenddb:latest .
 
-# 运行（通过环境变量覆盖配置）
+# 运行（挂载本地点表文件）
 docker run -d \
+  -v /opt/write-to-trenddb/config/points.csv:/config/points.csv:ro \
   -e TRENDDB5__CONNECTIONSTRING="Type=TrendDB5;SERVER=127.0.0.1:20010;DATABASE=db01;UID=system;PWD=luculent123@" \
   -e MQTT__BROKER=192.168.122.231 \
   -e MQTT__PORT=1884 \
@@ -125,32 +137,80 @@ docker run -d \
   write-to-trenddb:latest
 ```
 
-## CI/CD（Drone）
+## Helm 部署
 
-`.drone.yml` 配置三个 Pipeline：
+### 安装 / 升级
 
-1. `write-to-trenddb-amd64` — 在 amd64 Runner 构建并推送 `linux-amd64` 标签
-2. `write-to-trenddb-arm64` — 在 arm64 Runner 构建并推送 `linux-arm64` 标签
-3. `write-to-trenddb-manifest` — 合并为多架构 Manifest，打 `latest` 标签
+```bash
+helm upgrade --install write-to-trenddb \
+  oci://harbor.zkjgy.online/library/write-to-trenddb \
+  --namespace <namespace> \
+  -f values.yaml
+```
 
-触发条件：`main` 分支的 push 或 tag 事件。
+### 点表文件管理
 
-需在 Drone 中配置如下 Secret：
-- `harbor_username`
-- `harbor_password`
+点表 CSV 文件通过 **hostPath** 挂载，配置见 `values.yaml`：
+
+```yaml
+pointsFile:
+  hostPath: /opt/write-to-trenddb/config/points.csv   # 边缘节点上的路径
+  mountPath: /config/points.csv                         # 容器内路径（与 PointsFilePath 一致）
+```
+
+**首次部署前**，需将点表文件上传到边缘节点：
+
+```bash
+scp config/points.csv root@<edge-node>:/opt/write-to-trenddb/config/points.csv
+```
+
+**更新点表**（无需 helm upgrade，无需重建镜像）：
+
+```bash
+# 1. 上传新点表到边缘节点
+scp points.csv root@<edge-node>:/opt/write-to-trenddb/config/points.csv
+
+# 2. 重启 Pod 使新点表生效
+kubectl rollout restart deployment/write-to-trenddb -n <namespace>
+```
+
+## CI/CD（GitHub Actions）
+
+`.github/workflows/build-push.yml` 包含四个 Job，在 `main` 分支 push 或 tag 时自动触发：
+
+| Job                  | 说明                                                   |
+|----------------------|--------------------------------------------------------|
+| `build-amd64`        | 构建并推送 `linux-amd64` 镜像到 Harbor                 |
+| `build-arm64`        | 使用 QEMU 构建并推送 `linux-arm64` 镜像到 Harbor       |
+| `manifest`           | 合并为多架构 Manifest，打 `latest` 标签                |
+| `helm-package-push`  | 打包 Helm Chart 并推送到 Harbor OCI Registry           |
+
+打 tag 时，还会额外：
+- 将 amd64/arm64 镜像导出为 `.tar.gz`
+- 打包 Helm Chart `.tgz`
+- 创建 GitHub Release 并附上上述三个文件
+
+**所需 GitHub Secrets：**
+
+| Secret            | 说明                    |
+|-------------------|-------------------------|
+| `HARBOR_USERNAME` | Harbor 登录用户名       |
+| `HARBOR_PASSWORD` | Harbor 登录密码         |
 
 ## 调试工具
 
 镜像内置以下调试命令：
 
 ```bash
-# 测试网络连通性
-ping 192.168.122.231
-curl http://192.168.122.211:8080/api/sensors?page=1&size=5
-telnet 192.168.122.231 1884
-
 # 进入容器
 kubectl exec -it <pod-name> -- bash
+
+# 测试 MQTT 连通性
+telnet 192.168.122.231 1884
+
+# 测试网络
+ping 192.168.122.231
+curl http://192.168.122.211:8080/api/sensors
 ```
 
 ## 项目文件结构
@@ -158,22 +218,31 @@ kubectl exec -it <pod-name> -- bash
 ```
 write-to-trenddb/
 ├── Configuration/
-│   └── AppSettings.cs        # 配置类定义
+│   └── AppSettings.cs              # 配置类（含 PointsFilePath）
 ├── Models/
-│   └── SensorMessage.cs      # MQTT 消息 + 内部 TagData 模型
+│   └── SensorMessage.cs            # SensorValue（字典值）+ TagData 模型
 ├── TrendDb/
-│   ├── ITrendDb5Writer.cs    # 写入接口
-│   ├── TrendDb5ConnectionPool.cs  # 连接池（参照原项目）
-│   └── TrendDb5Writer.cs     # SetRtValuesByNames 实现
+│   ├── ITrendDb5Writer.cs           # 写入接口
+│   ├── TrendDb5ConnectionPool.cs    # 连接池
+│   └── TrendDb5Writer.cs            # 批量写入实现
 ├── Mqtt/
-│   └── MqttConsumer.cs       # 订阅 + 缓冲
+│   └── MqttConsumer.cs              # 订阅 + 字典格式解析 + 内存缓冲
 ├── Workers/
-│   └── TrendDbWriteWorker.cs # 定时写入 BackgroundService
+│   └── TrendDbWriteWorker.cs        # 定时写入 BackgroundService
+├── helm/
+│   └── write-to-trenddb/
+│       ├── Chart.yaml
+│       ├── values.yaml              # 含 pointsFile.hostPath 配置
+│       └── templates/
+│           ├── deployment.yaml      # hostPath 卷挂载点表
+│           └── configmap.yaml       # appsettings.json 渲染
+├── config/
+│   └── points.csv                   # 本地测试用点表（勿提交生产数据）
 ├── lib/
-│   └── TrendDb_API.dll       # TrendDB5 客户端 SDK
-├── Program.cs
+│   └── TrendDb_API.dll              # TrendDB5 客户端 SDK
+├── Program.cs                       # 启动入口，含 CSV 加载逻辑
 ├── WriteToTrendDb.csproj
 ├── appsettings.json
 ├── Dockerfile
-└── .drone.yml
+└── .github/workflows/build-push.yml
 ```

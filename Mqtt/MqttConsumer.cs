@@ -147,8 +147,8 @@ public sealed class MqttConsumer : IAsyncDisposable
         {
             var payload = Encoding.UTF8.GetString(args.ApplicationMessage.PayloadSegment);
 
-            // 期望收到 JSON 数组：[{name, value, timestamp, value_state}, ...]
-            var sensors = JsonSerializer.Deserialize<List<SensorMessage>>(payload);
+            // 期望收到 JSON 字典：{"测点名":{"value":1,"timestamp":1780041492,"state":1}, ...}
+            var sensors = JsonSerializer.Deserialize<Dictionary<string, SensorValue>>(payload);
             if (sensors is null || sensors.Count == 0)
             {
                 _logger.LogDebug("主题 {Topic} 收到空消息或解析结果为空", topic);
@@ -156,18 +156,17 @@ public sealed class MqttConsumer : IAsyncDisposable
             }
 
             var matched = 0;
-            foreach (var sensor in sensors)
+            foreach (var (name, sv) in sensors)
             {
                 // 只处理在映射表中配置的测点
-                if (!_nameMapping.TryGetValue(sensor.Name, out var targetName))
+                if (!_nameMapping.TryGetValue(name, out var targetName))
                     continue;
 
-                var ts = ParseTimestamp(sensor.Timestamp);
                 _buffer[targetName] = new TagData
                 {
-                    Value = sensor.Value,
-                    TimeStamp = ts,
-                    ValueState = sensor.ValueState
+                    Value      = sv.Value,
+                    TimeStamp  = ParseUnixTimestamp(sv.Timestamp),
+                    ValueState = sv.State
                 };
                 matched++;
             }
@@ -199,21 +198,9 @@ public sealed class MqttConsumer : IAsyncDisposable
         return result;
     }
 
-    /// <summary>解析 ISO8601 时间戳字符串为 UTC DateTime，解析失败则使用当前 UTC 时间。</summary>
-    private DateTime ParseTimestamp(string ts)
-    {
-        // RoundtripKind 不能与 AssumeUniversal / AssumeLocal 同时使用（.NET 限制）。
-        // sensor-simulator 推送的时间戳已包含时区偏移（如 +00:00），RoundtripKind 会正确保留其 Kind，
-        // 调用 ToUniversalTime() 统一转为 UTC 即可。
-        if (DateTime.TryParse(ts, null,
-            System.Globalization.DateTimeStyles.RoundtripKind,
-            out var dt))
-        {
-            return dt.ToUniversalTime();
-        }
-        _logger.LogDebug("时间戳解析失败：{Ts}，使用当前 UTC 时间", ts);
-        return DateTime.UtcNow;
-    }
+    /// <summary>将 Unix 秒级时间戳转换为 UTC DateTime。</summary>
+    private static DateTime ParseUnixTimestamp(long unixSeconds)
+        => DateTimeOffset.FromUnixTimeSeconds(unixSeconds).UtcDateTime;
 
     public async ValueTask DisposeAsync()
     {

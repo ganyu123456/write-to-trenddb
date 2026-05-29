@@ -57,26 +57,14 @@ appSettings:
       - "sensors/batch"
       - "sensors2/batch"
 
-  # 消费测点名（Source）→ 回写测点名（Target）映射表
-  # Source: mapper 推送的原始测点名；Target: 写入 TrendDB5 的测点名
-  TagMappings:
-    - Source: "db01.tag1"
-      Target: "db01.tag1"
-    - Source: "db01.tag2"
-      Target: "db01.tag2"
-    - Source: "db01.tag3"
-      Target: "db01.tag3"
-    - Source: "db01.tag4"
-      Target: "db01.tag4"
-    - Source: "db01.tag5"
-      Target: "db01.tag5"
-    - Source: "db01.tag6"
-      Target: "db01.tag6"
-    - Source: "db01.tag7"
-      Target: "db01.tag7"
-    - Source: "db01.tag8"
-      Target: "db01.tag8"
-    - Source: "db01.tag9"
-      Target: "db01.tag9"
-    - Source: "db01.tag10"
-      Target: "db01.tag10"
+  # 点表 CSV 文件在容器内的路径，由下方 pointsFile.hostPath 挂载到节点本地文件
+  PointsFilePath: "/config/points.csv"
+
+# ── 点表文件 hostPath 挂载 ────────────────────────────────
+# 将边缘节点上的本地 CSV 文件直接挂载进容器，避免 ConfigMap 体积限制。
+# 更新点表只需替换节点上的文件并重启 Pod，无需重新 helm upgrade。
+pointsFile:
+  # 边缘节点上的绝对路径（需提前将 points.csv 上传到该路径）
+  hostPath: /opt/write-to-trenddb/config/points.csv
+  # 容器内挂载路径（与 PointsFilePath 保持一致）
+  mountPath: /config/points.csv
