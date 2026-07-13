@@ -1,0 +1,334 @@
+[
+  {
+    "groupKey": "image",
+    "label": "镜像配置",
+    "icon": "🐳",
+    "description": "容器镜像地址、版本及拉取策略",
+    "fields": [
+      {
+        "key": "repository",
+        "label": "镜像仓库地址",
+        "type": "string",
+        "required": true,
+        "defaultValue": "harbor.zkjgy.online/library/write-to-trenddb",
+        "yamlPath": "image.repository",
+        "placeholder": "如 harbor.zkjgy.online/library/write-to-trenddb",
+        "span": 24
+      },
+      {
+        "key": "tag",
+        "label": "镜像版本",
+        "type": "string",
+        "defaultValue": "latest",
+        "yamlPath": "image.tag",
+        "placeholder": "如 latest、v1.0.0",
+        "span": 12
+      },
+      {
+        "key": "pullPolicy",
+        "label": "镜像拉取策略",
+        "type": "select",
+        "defaultValue": "IfNotPresent",
+        "yamlPath": "image.pullPolicy",
+        "description": "IfNotPresent：本地有则用本地；Always：每次都拉取最新；Never：仅使用本地镜像",
+        "options": [
+          { "label": "IfNotPresent - 本地有则用本地", "value": "IfNotPresent" },
+          { "label": "Always - 每次都拉取最新", "value": "Always" },
+          { "label": "Never - 仅使用本地镜像", "value": "Never" }
+        ],
+        "span": 12
+      }
+    ]
+  },
+  {
+    "groupKey": "scheduling",
+    "label": "边缘节点调度",
+    "icon": "🖥️",
+    "description": "KubeEdge 边缘节点的调度策略与网络模式",
+    "fields": [
+      {
+        "key": "hostNetwork",
+        "label": "使用主机网络",
+        "type": "boolean",
+        "defaultValue": true,
+        "yamlPath": "hostNetwork",
+        "description": "开启后容器直接使用节点物理 IP，可直接访问 TrendDB5 和 EMQX",
+        "span": 12
+      },
+      {
+        "key": "dnsPolicy",
+        "label": "DNS 策略",
+        "type": "select",
+        "defaultValue": "ClusterFirstWithHostNet",
+        "yamlPath": "dnsPolicy",
+        "description": "使用主机网络时推荐 ClusterFirstWithHostNet",
+        "options": [
+          { "label": "ClusterFirstWithHostNet", "value": "ClusterFirstWithHostNet" },
+          { "label": "ClusterFirst", "value": "ClusterFirst" },
+          { "label": "Default", "value": "Default" },
+          { "label": "None", "value": "None" }
+        ],
+        "span": 12
+      }
+    ]
+  },
+  {
+    "groupKey": "resources",
+    "label": "资源限制",
+    "icon": "💾",
+    "description": "容器 CPU 与内存的资源申请值及上限",
+    "fields": [
+      {
+        "key": "requestsCpu",
+        "label": "CPU 申请值",
+        "type": "string",
+        "defaultValue": "200m",
+        "yamlPath": "resources.requests.cpu",
+        "placeholder": "如 200m、500m、1",
+        "description": "Kubernetes 调度器保证分配的最低 CPU 资源",
+        "span": 12
+      },
+      {
+        "key": "requestsMemory",
+        "label": "内存申请值",
+        "type": "string",
+        "defaultValue": "256Mi",
+        "yamlPath": "resources.requests.memory",
+        "placeholder": "如 256Mi、512Mi、1Gi",
+        "description": "Kubernetes 调度器保证分配的最低内存资源",
+        "span": 12
+      },
+      {
+        "key": "limitsCpu",
+        "label": "CPU 上限",
+        "type": "string",
+        "defaultValue": "1000m",
+        "yamlPath": "resources.limits.cpu",
+        "placeholder": "如 1000m、2",
+        "description": "容器允许使用的最大 CPU，超出会被限流",
+        "span": 12
+      },
+      {
+        "key": "limitsMemory",
+        "label": "内存上限",
+        "type": "string",
+        "defaultValue": "512Mi",
+        "yamlPath": "resources.limits.memory",
+        "placeholder": "如 512Mi、1Gi、2Gi",
+        "description": "容器允许使用的最大内存，超出会被 OOMKill",
+        "span": 12
+      }
+    ]
+  },
+  {
+    "groupKey": "logging",
+    "label": "日志配置",
+    "icon": "📋",
+    "description": ".NET 运行时日志级别，按组件独立控制",
+    "fields": [
+      {
+        "key": "defaultLogLevel",
+        "label": "默认日志级别",
+        "type": "select",
+        "defaultValue": "Information",
+        "yamlPath": "appSettings.Logging.LogLevel.Default",
+        "description": "未单独配置的组件使用此级别",
+        "options": [
+          { "label": "Trace - 最详细", "value": "Trace" },
+          { "label": "Debug - 调试", "value": "Debug" },
+          { "label": "Information - 信息（推荐）", "value": "Information" },
+          { "label": "Warning - 警告", "value": "Warning" },
+          { "label": "Error - 错误", "value": "Error" },
+          { "label": "Critical - 严重", "value": "Critical" },
+          { "label": "None - 不输出", "value": "None" }
+        ],
+        "span": 12
+      },
+      {
+        "key": "hostLifetimeLogLevel",
+        "label": "Host 生命周期日志",
+        "type": "select",
+        "defaultValue": "Information",
+        "yamlPath": "appSettings.Logging.LogLevel.Microsoft.Hosting.Lifetime",
+        "description": "⚠ yamlPath 含带点号的 key，若渲染异常请切换 YAML 模式手动编辑",
+        "options": [
+          { "label": "Trace", "value": "Trace" },
+          { "label": "Debug", "value": "Debug" },
+          { "label": "Information（推荐）", "value": "Information" },
+          { "label": "Warning", "value": "Warning" },
+          { "label": "Error", "value": "Error" },
+          { "label": "Critical", "value": "Critical" },
+          { "label": "None", "value": "None" }
+        ],
+        "span": 12
+      },
+      {
+        "key": "appLogLevel",
+        "label": "WriteToTrendDb 日志",
+        "type": "select",
+        "defaultValue": "Information",
+        "yamlPath": "appSettings.Logging.LogLevel.WriteToTrendDb",
+        "description": "业务代码日志级别，调试时可设为 Debug",
+        "options": [
+          { "label": "Trace", "value": "Trace" },
+          { "label": "Debug", "value": "Debug" },
+          { "label": "Information（推荐）", "value": "Information" },
+          { "label": "Warning", "value": "Warning" },
+          { "label": "Error", "value": "Error" },
+          { "label": "Critical", "value": "Critical" },
+          { "label": "None", "value": "None" }
+        ],
+        "span": 12
+      }
+    ]
+  },
+  {
+    "groupKey": "trenddb",
+    "label": "TrendDB5 数据库",
+    "icon": "🗄️",
+    "description": "TrendDB5 时序数据库的连接参数与写入策略",
+    "fields": [
+      {
+        "key": "connectionString",
+        "label": "数据库连接字符串",
+        "type": "textarea",
+        "required": true,
+        "defaultValue": "Type=TrendDB5;SERVER=127.0.0.1:20010;DATABASE=db01;UID=system;PWD=luculent123@,SERVER=127.0.0.1:20020;DATABASE=db02;UID=system;PWD=luculent123@",
+        "yamlPath": "appSettings.TrendDb5.ConnectionString",
+        "placeholder": "Type=TrendDB5;SERVER=IP:PORT;DATABASE=db01;UID=system;PWD=xxx",
+        "description": "支持多数据库，多个连接串用英文逗号分隔。格式：Type=TrendDB5;SERVER=IP:PORT;DATABASE=库名;UID=用户;PWD=密码"
+      },
+      {
+        "key": "poolSize",
+        "label": "连接池大小",
+        "type": "number",
+        "defaultValue": 7,
+        "yamlPath": "appSettings.TrendDb5.PoolSize",
+        "min": 1,
+        "max": 200,
+        "description": "TrendDB5 连接池最大连接数，建议按数据库数量 × 3 配置",
+        "span": 12
+      },
+      {
+        "key": "writeIntervalSeconds",
+        "label": "写入间隔",
+        "type": "number",
+        "defaultValue": 5,
+        "yamlPath": "appSettings.TrendDb5.WriteIntervalSeconds",
+        "min": 1,
+        "max": 300,
+        "unit": "秒",
+        "description": "批量数据写入 TrendDB5 的时间间隔，值越小延迟越低但写入频率越高",
+        "span": 12
+      }
+    ]
+  },
+  {
+    "groupKey": "mqtt",
+    "label": "MQTT 消息队列",
+    "icon": "📡",
+    "description": "MQTT Broker 连接参数与数据订阅主题",
+    "fields": [
+      {
+        "key": "broker",
+        "label": "Broker 地址",
+        "type": "string",
+        "required": true,
+        "defaultValue": "192.168.122.231",
+        "yamlPath": "appSettings.Mqtt.Broker",
+        "placeholder": "如 192.168.122.231 或 mqtt.example.com",
+        "description": "MQTT Broker 的 IP 或域名",
+        "span": 12
+      },
+      {
+        "key": "port",
+        "label": "Broker 端口",
+        "type": "number",
+        "required": true,
+        "defaultValue": 1884,
+        "yamlPath": "appSettings.Mqtt.Port",
+        "min": 1,
+        "max": 65535,
+        "description": "标准 MQTT TCP 端口 1883，TLS 端口 8883",
+        "span": 12
+      },
+      {
+        "key": "clientId",
+        "label": "客户端 ID",
+        "type": "string",
+        "defaultValue": "trenddb-writer",
+        "yamlPath": "appSettings.Mqtt.ClientId",
+        "description": "MQTT 客户端唯一标识，同一 Broker 下不可重复",
+        "span": 12
+      },
+      {
+        "key": "username",
+        "label": "用户名",
+        "type": "string",
+        "defaultValue": "",
+        "yamlPath": "appSettings.Mqtt.Username",
+        "placeholder": "留空表示无认证",
+        "description": "MQTT Broker 认证用户名",
+        "span": 12
+      },
+      {
+        "key": "password",
+        "label": "密码",
+        "type": "password",
+        "defaultValue": "",
+        "yamlPath": "appSettings.Mqtt.Password",
+        "placeholder": "留空表示无认证",
+        "description": "MQTT Broker 认证密码",
+        "span": 12
+      },
+      {
+        "key": "topics",
+        "label": "订阅主题列表",
+        "type": "textarea",
+        "defaultValue": "- sensors/batch\n- sensors2/batch",
+        "yamlPath": "appSettings.Mqtt.Topics",
+        "description": "YAML 数组格式，每行一个 \"- topic名\"。支持通配符 +（单层）和 #（多层）",
+        "span": 24
+      }
+    ]
+  },
+  {
+    "groupKey": "pointsFile",
+    "label": "点表文件挂载",
+    "icon": "📁",
+    "description": "边缘节点本地 CSV 点表文件的挂载路径，用于测点映射",
+    "fields": [
+      {
+        "key": "pointsFilePath",
+        "label": "应用内读取路径",
+        "type": "string",
+        "defaultValue": "/config/points.csv",
+        "yamlPath": "appSettings.PointsFilePath",
+        "description": "应用程序读取点表 CSV 的容器内路径，需与下方挂载路径保持一致",
+        "span": 24
+      },
+      {
+        "key": "hostPath",
+        "label": "节点主机路径",
+        "type": "string",
+        "required": true,
+        "defaultValue": "/opt/write-to-trenddb/config/points.csv",
+        "yamlPath": "pointsFile.hostPath",
+        "placeholder": "如 /opt/write-to-trenddb/config/points.csv",
+        "description": "边缘节点上 points.csv 的绝对路径，部署前需将文件上传到此位置",
+        "span": 12
+      },
+      {
+        "key": "mountPath",
+        "label": "容器内挂载路径",
+        "type": "string",
+        "required": true,
+        "defaultValue": "/config/points.csv",
+        "yamlPath": "pointsFile.mountPath",
+        "placeholder": "如 /config/points.csv",
+        "description": "hostPath 文件挂载到容器内的目标路径，建议与 PointsFilePath 一致",
+        "span": 12
+      }
+    ]
+  }
+]
