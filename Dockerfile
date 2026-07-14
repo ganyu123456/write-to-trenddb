@@ -33,6 +33,8 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
       mosquitto-clients \
     && rm -rf /var/lib/apt/lists/*
 
+ENV TZ=Asia/Shanghai
+
 # 复制发布产物（含 TrendDb_API.dll 及 appsettings.json）
 COPY --from=builder /out .
 
