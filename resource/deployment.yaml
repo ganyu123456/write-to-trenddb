@@ -113,7 +113,7 @@ spec:
 
       containers:
         - name: write-to-trenddb
-          image: harbor.zkjgy.online/library/write-to-trenddb:latest   # TODO: 可指定具体版本如 :v1.0
+          image: harbor.zkjgy.online/library/write-to-trenddb:2.5.0   # TODO: 可指定具体版本如 :v1.0
           imagePullPolicy: Always
 
           # ── 将 ConfigMap 中的 appsettings.json 挂载到容器内 ──
