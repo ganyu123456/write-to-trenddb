@@ -16,7 +16,7 @@ spec:
         {{- include "write-to-trenddb.selectorLabels" . | nindent 8 }}
       # 配置变更时触发 Pod 滚动更新（ConfigMap 内容变化时自动重启）
       annotations:
-        checksum/config: {{ .Values.appSettings | toJson | sha256sum }}
+        checksum/config: {{ printf "%s%s" (.Values.appSettings | toJson) (.Values.logFile | toJson) | sha256sum }}
     spec:
       {{- if .Values.nodeName }}
       nodeName: {{ .Values.nodeName }}
@@ -59,6 +59,11 @@ spec:
             - name: points-csv
               mountPath: {{ .Values.pointsFile.mountPath }}
               readOnly: true
+            {{- if .Values.logFile.enabled }}
+            # 日志文件输出到节点本地目录（支持轮转后持久化）
+            - name: logs
+              mountPath: {{ .Values.logFile.mountPath }}
+            {{- end }}
 
       volumes:
         - name: app-config
@@ -69,3 +74,10 @@ spec:
           hostPath:
             path: {{ .Values.pointsFile.hostPath }}
             type: File
+        {{- if .Values.logFile.enabled }}
+        # 日志目录挂载到节点本地路径，日志文件轮转后持久保留
+        - name: logs
+          hostPath:
+            path: {{ .Values.logFile.hostPath }}
+            type: DirectoryOrCreate
+        {{- end }}

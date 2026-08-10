@@ -213,12 +213,12 @@
         "key": "writeIntervalSeconds",
         "label": "写入间隔",
         "type": "number",
-        "defaultValue": 5,
+        "defaultValue": 1,
         "yamlPath": "appSettings.TrendDb5.WriteIntervalSeconds",
         "min": 1,
         "max": 300,
         "unit": "秒",
-        "description": "批量数据写入 TrendDB5 的时间间隔，值越小延迟越低但写入频率越高",
+        "description": "批量数据写入 TrendDB5 的时间间隔，默认 1 秒",
         "span": 12
       }
     ]
@@ -285,10 +285,107 @@
         "key": "topics",
         "label": "订阅主题列表",
         "type": "textarea",
-        "defaultValue": "- sensors/batch\n- sensors2/batch",
+        "defaultValue": "- device/sis/data",
         "yamlPath": "appSettings.Mqtt.Topics",
         "description": "YAML 数组格式，每行一个 \"- topic名\"。支持通配符 +（单层）和 #（多层）",
         "span": 24
+      }
+    ]
+  },
+  {
+    "groupKey": "logFile",
+    "label": "日志文件持久化",
+    "icon": "📝",
+    "description": "日志文件输出到边缘节点本地路径，支持按大小自动轮转",
+    "fields": [
+      {
+        "key": "logFileEnabled",
+        "label": "启用文件日志",
+        "type": "boolean",
+        "defaultValue": true,
+        "yamlPath": "logFile.enabled",
+        "description": "开启后日志将写入节点本地目录，容器重启不会丢失历史日志",
+        "span": 12
+      },
+      {
+        "key": "logFileHostPath",
+        "label": "节点日志目录",
+        "type": "string",
+        "required": true,
+        "defaultValue": "/opt/write-to-trenddb/logs",
+        "yamlPath": "logFile.hostPath",
+        "placeholder": "如 /opt/write-to-trenddb/logs",
+        "description": "边缘节点上存放日志文件的绝对路径，部署前需手动创建此目录",
+        "span": 12
+      },
+      {
+        "key": "logFileMountPath",
+        "label": "容器内日志路径",
+        "type": "string",
+        "required": true,
+        "defaultValue": "/logs",
+        "yamlPath": "logFile.mountPath",
+        "placeholder": "如 /logs",
+        "description": "日志目录挂载到容器内的目标路径，需与 appSettings Serilog 文件路径一致",
+        "span": 12
+      },
+      {
+        "key": "logFileSizeLimitMB",
+        "label": "日志文件大小上限",
+        "type": "number",
+        "defaultValue": 10,
+        "yamlPath": "logFile.fileSizeLimitMB",
+        "min": 1,
+        "max": 1024,
+        "unit": "MB",
+        "description": "单个日志文件超过此大小自动轮转，默认 10 MB",
+        "span": 12
+      },
+      {
+        "key": "logFileRetainedCountLimit",
+        "label": "最多保留文件数",
+        "type": "number",
+        "defaultValue": 30,
+        "yamlPath": "logFile.retainedFileCountLimit",
+        "min": 1,
+        "max": 365,
+        "unit": "个",
+        "description": "保留的日志文件数量上限，超出后自动删除最旧的文件",
+        "span": 12
+      },
+      {
+        "key": "logFileConsoleLevel",
+        "label": "控制台日志等级",
+        "type": "select",
+        "defaultValue": "Information",
+        "yamlPath": "logFile.consoleLevel",
+        "description": "控制台输出日志的最低等级",
+        "options": [
+          { "label": "Verbose  - 最详细", "value": "Verbose" },
+          { "label": "Debug     - 调试", "value": "Debug" },
+          { "label": "Information - 信息（推荐）", "value": "Information" },
+          { "label": "Warning   - 警告", "value": "Warning" },
+          { "label": "Error     - 错误", "value": "Error" },
+          { "label": "Fatal     - 严重错误", "value": "Fatal" }
+        ],
+        "span": 12
+      },
+      {
+        "key": "logFileFileLevel",
+        "label": "文件日志等级",
+        "type": "select",
+        "defaultValue": "Information",
+        "yamlPath": "logFile.fileLevel",
+        "description": "低于此等级的日志不会写入文件",
+        "options": [
+          { "label": "Verbose  - 最详细", "value": "Verbose" },
+          { "label": "Debug     - 调试", "value": "Debug" },
+          { "label": "Information - 信息（推荐）", "value": "Information" },
+          { "label": "Warning   - 警告", "value": "Warning" },
+          { "label": "Error     - 错误", "value": "Error" },
+          { "label": "Fatal     - 严重错误", "value": "Fatal" }
+        ],
+        "span": 12
       }
     ]
   },

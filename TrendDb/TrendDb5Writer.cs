@@ -87,13 +87,25 @@ public sealed class TrendDb5Writer : ITrendDb5Writer
                     {
                         if (resList[i] < 0)
                         {
+                            var errFullName = dbName + "." + validShortNames[i];
+                            input.TryGetValue(errFullName, out var errTd);
                             _logger.LogWarning(
-                                "测点写入失败：db={Db}, tag={Tag}, code={Code}",
-                                dbName, validShortNames[i], resList[i]);
+                                "测点写入失败：db={Db}, tag={Tag}, value={Value}, code={Code}",
+                                dbName, validShortNames[i], errTd?.Value, resList[i]);
                         }
                     }
 
-                    _logger.LogDebug("成功写入 {Count} 个测点到 {Db}", validShortNames.Count, dbName);
+                    if (_logger.IsEnabled(LogLevel.Debug))
+                    {
+                        foreach (var shortName in validShortNames)
+                        {
+                            var fullName = dbName + "." + shortName;
+                            input.TryGetValue(fullName, out var td);
+                            _logger.LogDebug(
+                                "写入测点 {Tag} = {Value} (state={State}) 到 {Db}",
+                                shortName, td?.Value, td?.ValueState, dbName);
+                        }
+                    }
                 }
             }
             catch (Exception ex)

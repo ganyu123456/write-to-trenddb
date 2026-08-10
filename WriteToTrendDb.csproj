@@ -14,6 +14,12 @@
     <PackageReference Include="Microsoft.Extensions.Hosting" Version="10.0.0" />
     <!-- MQTT client -->
     <PackageReference Include="MQTTnet" Version="4.3.3.952" />
+
+    <!-- Serilog: 结构化日志 + 文件持久化（支持按大小/时间轮转、保留文件数限制） -->
+    <PackageReference Include="Serilog.Extensions.Hosting" Version="8.0.0" />
+    <PackageReference Include="Serilog.Sinks.Console" Version="6.0.0" />
+    <PackageReference Include="Serilog.Sinks.File" Version="6.0.0" />
+    <PackageReference Include="Serilog.Settings.Configuration" Version="8.0.0" />
     <!--
       TrendDb_API.dll 内部通过 gRPC 连接 TrendDB5 服务端，需要以下依赖。
       版本须与 TrendDb_API.dll 编译时依赖的程序集版本精确匹配：

@@ -4,8 +4,8 @@
 
 # ── 镜像 ──────────────────────────────────────────────────
 image:
-  repository: harbor.zkjgy.online/library/write-to-trenddb
-  tag: "2.5.0"
+  repository: 10.253.3.91:30550/library/write-to-trenddb
+  tag: "2.6.0"
   pullPolicy: IfNotPresent
 
 imagePullSecrets:
@@ -30,6 +30,18 @@ resources:
     cpu: 1000m
     memory: 512Mi
 
+# ── 日志文件持久化（hostPath 挂载到节点本地路径）─────────
+# 日志文件通过 hostPath 挂载写入边缘节点，支持按大小自动轮转。
+# ConfigMap 模板会从此段构建完整的 Serilog 配置（Console + File sink）。
+logFile:
+  enabled: true
+  hostPath: /opt/write-to-trenddb/logs       # 边缘节点本地日志目录（部署前需 mkdir）
+  mountPath: /logs                            # 容器内挂载路径（日志文件写入此目录）
+  fileSizeLimitMB: 10                         # 单个日志文件最大 MB（超出自动轮转）
+  retainedFileCountLimit: 30                   # 最多保留的日志文件数（超出自动删除旧文件）
+  consoleLevel: Information                    # 控制台输出最低日志等级
+  fileLevel: Information                       # 写入文件的日志最低等级
+
 # ── appsettings.json 配置内容（渲染为 ConfigMap 挂载到容器）──
 # 修改此处后执行 helm upgrade 即可，无需重建镜像
 appSettings:
@@ -43,7 +55,7 @@ appSettings:
     # 支持多个数据库，逗号分隔多个 SERVER=...;DATABASE=...
     ConnectionString: "Type=TrendDB5;SERVER=127.0.0.1:20010;DATABASE=db01;UID=system;PWD=luculent123@,SERVER=127.0.0.1:20020;DATABASE=db02;UID=system;PWD=luculent123@"
     PoolSize: 7
-    WriteIntervalSeconds: 5
+    WriteIntervalSeconds: 1
 
   Mqtt:
     Broker: "192.168.122.231"
@@ -53,8 +65,7 @@ appSettings:
     Password: ""
     # 订阅的 MQTT 主题列表（支持多个，对应多个 mapper 实例）
     Topics:
-      - "sensors/batch"
-      - "sensors2/batch"
+      - "device/sis/data"
 
   # 点表 CSV 文件在容器内的路径，由下方 pointsFile.hostPath 挂载到节点本地文件
   PointsFilePath: "/config/points.csv"

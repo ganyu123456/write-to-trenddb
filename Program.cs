@@ -1,9 +1,18 @@
+using Serilog;
 using WriteToTrendDb.Configuration;
 using WriteToTrendDb.Mqtt;
 using WriteToTrendDb.TrendDb;
 using WriteToTrendDb.Workers;
 
 var builder = Host.CreateApplicationBuilder(args);
+
+// 初始化 Serilog：从 appsettings.json 的 Serilog 节点读取配置
+var logger = new LoggerConfiguration()
+    .ReadFrom.Configuration(builder.Configuration)
+    .CreateLogger();
+
+builder.Logging.ClearProviders();
+builder.Logging.AddSerilog(logger, dispose: true);
 
 // 校验点表文件是否存在（PointsFilePath 配置项指定路径）
 // 点表的实际加载由 MqttConsumer 构造函数直接完成，不经过配置绑定系统，

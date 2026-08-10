@@ -8,7 +8,7 @@
 sensor-simulator-mapper / IoT Gateway
         │
         │ MQTT 批量消息（JSON 字典）
-        │ Topic: sensors/batch、sensors2/batch ...
+        │ Topic: device/sis/data
         ▼
   MqttConsumer（内存缓冲）
         │
@@ -27,9 +27,13 @@ MQTT 客户端推送的消息为 **JSON 字典**，key 为测点名，value 包�
 
 ```json
 {
-  "DDM.SIS.1DCS_BBA01XP01": {"value": 1, "timestamp": 1780041492, "state": 1},
-  "DDM.SIS.1DCS_BBA01XP02": {"value": 0, "timestamp": 1780041574, "state": 1},
-  "DDM.SIS.1DCS_BBA02XP01": {"value": 1, "timestamp": 1780041492, "state": 0}
+  "timestamp": 1780076839551,
+  "deviceId": "sis-collect-dev-dy",
+  "batchData": {
+    "DDM.SIS.1DCS_BBA01XP01": {"value": 1, "timestamp": 1780041492, "state": 1},
+    "DDM.SIS.1DCS_BBA01XP02": {"value": 0, "timestamp": 1780041574, "state": 1},
+    "DDM.SIS.1DCS_BBA02XP01": {"value": 1, "timestamp": 1780041492, "state": 0}
+  }
 }
 ```
 
@@ -50,7 +54,7 @@ Type=TrendDB5;SERVER=ip:port;DATABASE=db01;UID=user;PWD=pass,SERVER=ip:port;DATA
 - 以 `Type=TrendDB5;` 开头（程序内部会自动跳过此前缀）
 - 多个数据库之间用逗号分隔
 - `PoolSize`：连接池大小，默认 7
-- `WriteIntervalSeconds`：回写间隔秒数，默认 5 秒
+- `WriteIntervalSeconds`：回写间隔秒数，默认 1 秒
 
 ### MQTT 配置
 
@@ -61,9 +65,40 @@ Type=TrendDB5;SERVER=ip:port;DATABASE=db01;UID=user;PWD=pass,SERVER=ip:port;DATA
   "ClientId": "trenddb-writer",
   "Username": "",
   "Password": "",
-  "Topics": ["sensors/batch", "sensors2/batch"]
+  "Topics": ["device/sis/data"]
 }
 ```
+
+### 日志配置（Serilog）
+
+使用 Serilog 结构化日志，支持 Console + File 双输出，各自独立控制日志等级：
+
+```json
+"Serilog": {
+  "Using": ["Serilog.Sinks.Console", "Serilog.Sinks.File"],
+  "MinimumLevel": "Verbose",
+  "WriteTo": [
+    {
+      "Name": "Console",
+      "Args": { "restrictedToMinimumLevel": "Information" }
+    },
+    {
+      "Name": "File",
+      "Args": {
+        "path": "/logs/write-to-trenddb.log",
+        "rollOnFileSizeLimit": true,
+        "fileSizeLimitBytes": 10485760,
+        "retainedFileCountLimit": 30,
+        "restrictedToMinimumLevel": "Information"
+      }
+    }
+  ]
+}
+```
+
+- `MinimumLevel: "Verbose"` — 全局最低等级，实际过滤由各 sink 的 `restrictedToMinimumLevel` 控制
+- Console sink：控制台输出等级
+- File sink：文件输出等级 + 按大小轮转（`rollOnFileSizeLimit`），日志文件通过 hostPath 持久化到边缘节点
 
 ### 点表文件（PointsFilePath）
 
@@ -100,7 +135,7 @@ MQTT__BROKER=192.168.122.231
 MQTT__PORT=1884
 
 # 覆盖回写间隔
-TRENDDB5__WRITEINTERVALSECONDS=10
+TRENDDB5__WRITEINTERVALSECONDS=1
 
 # 覆盖点表文件路径
 POINTSFILEPATH=/data/points.csv
@@ -127,9 +162,10 @@ ASPNETCORE_ENVIRONMENT=Development dotnet run
 # 构建镜像
 docker build -t write-to-trenddb:latest .
 
-# 运行（挂载本地点表文件）
+# 运行（挂载本地点表文件 + 日志目录）
 docker run -d \
   -v /opt/write-to-trenddb/config/points.csv:/config/points.csv:ro \
+  -v /opt/write-to-trenddb/logs:/logs \
   -e TRENDDB5__CONNECTIONSTRING="Type=TrendDB5;SERVER=127.0.0.1:20010;DATABASE=db01;UID=system;PWD=luculent123@" \
   -e MQTT__BROKER=192.168.122.231 \
   -e MQTT__PORT=1884 \
@@ -146,6 +182,26 @@ helm upgrade --install write-to-trenddb \
   oci://harbor.zkjgy.online/library/write-to-trenddb \
   --namespace <namespace> \
   -f values.yaml
+```
+
+### 日志文件持久化配置
+
+日志文件通过 `logFile` 段配置，支持按大小自动轮转并持久化到边缘节点：
+
+```yaml
+logFile:
+  enabled: true
+  hostPath: /opt/write-to-trenddb/logs       # 边缘节点本地日志目录（部署前需 mkdir）
+  mountPath: /logs                            # 容器内挂载路径
+  fileSizeLimitMB: 10                         # 单个日志文件最大 MB
+  retainedFileCountLimit: 30                   # 最多保留的日志文件数
+  consoleLevel: Information                    # 控制台输出最低日志等级
+  fileLevel: Information                       # 写入文件的日志最低等级
+```
+
+部署前创建日志目录：
+```bash
+ssh root@<edge-node> mkdir -p /opt/write-to-trenddb/logs
 ```
 
 ### 点表文件管理
@@ -176,19 +232,16 @@ kubectl rollout restart deployment/write-to-trenddb -n <namespace>
 
 ## CI/CD（GitHub Actions）
 
-`.github/workflows/build-push.yml` 包含四个 Job，在 `main` 分支 push 或 tag 时自动触发：
+`.github/workflows/build-push.yml` 在 `v*` tag 时自动触发：
 
 | Job                  | 说明                                                   |
 |----------------------|--------------------------------------------------------|
+| `version`            | 从 tag 提取版本号                                       |
 | `build-amd64`        | 构建并推送 `linux-amd64` 镜像到 Harbor                 |
-| `build-arm64`        | 使用 QEMU 构建并推送 `linux-arm64` 镜像到 Harbor       |
-| `manifest`           | 合并为多架构 Manifest，打 `latest` 标签                |
-| `helm-package-push`  | 打包 Helm Chart 并推送到 Harbor OCI Registry           |
-
-打 tag 时，还会额外：
-- 将 amd64/arm64 镜像导出为 `.tar.gz`
-- 打包 Helm Chart `.tgz`
-- 创建 GitHub Release 并附上上述三个文件
+| `build-arm64`        | 使用原生 ARM runner 构建并推送 `linux-arm64` 镜像      |
+| `manifest`           | 合并为多架构 Manifest                                  |
+| `helm-package`       | 打包 Helm Chart 并推送到 Harbor OCI Registry           |
+| `release`            | 创建 GitHub Release，附加镜像 tar + Helm Chart + paramSchema |
 
 **所需 GitHub Secrets：**
 
@@ -232,17 +285,18 @@ write-to-trenddb/
 ├── helm/
 │   └── write-to-trenddb/
 │       ├── Chart.yaml
-│       ├── values.yaml              # 含 pointsFile.hostPath 配置
+│       ├── values.yaml              # 含 logFile + pointsFile 配置
 │       └── templates/
-│           ├── deployment.yaml      # hostPath 卷挂载点表
-│           └── configmap.yaml       # appsettings.json 渲染
+│           ├── deployment.yaml      # hostPath 卷挂载（点表 + 日志）
+│           └── configmap.yaml       # appsettings.json + Serilog 配置渲染
 ├── config/
 │   └── points.csv                   # 本地测试用点表（勿提交生产数据）
 ├── lib/
 │   └── TrendDb_API.dll              # TrendDB5 客户端 SDK
-├── Program.cs                       # 启动入口，含 CSV 加载逻辑
+├── Program.cs                       # 启动入口，Serilog 初始化 + CSV 校验
 ├── WriteToTrendDb.csproj
 ├── appsettings.json
 ├── Dockerfile
+├── paramSchema.json                 # 平台部署向导参数表单
 └── .github/workflows/build-push.yml
 ```

@@ -6,7 +6,24 @@ metadata:
   labels:
     {{- include "write-to-trenddb.labels" . | nindent 4 }}
 data:
-  # appsettings.json 由 values.yaml 中的 appSettings 渲染生成
-  # .NET 配置系统会自动从 /app/appsettings.json 加载
+  # appsettings.json 由 values.yaml 中的 appSettings + logFile 合并渲染
+  # Serilog 配置完全由 logFile 段控制。
   appsettings.json: |
-    {{ .Values.appSettings | toPrettyJson | nindent 4 }}
+    {{- $config := .Values.appSettings | mustDeepCopy }}
+    {{- $serilog := dict "Using" (list "Serilog.Sinks.Console" "Serilog.Sinks.File") }}
+    {{- $_ := set $serilog "MinimumLevel" (dict "Default" "Verbose") }}
+    {{- $writeTo := list (dict "Name" "Console" "Args" (dict "restrictedToMinimumLevel" .Values.logFile.consoleLevel)) }}
+    {{- if .Values.logFile.enabled }}
+      {{- $fileSizeBytes := mul .Values.logFile.fileSizeLimitMB 1048576 }}
+      {{- $fileSink := dict "Name" "File" "Args" (dict
+            "path" (printf "%s/write-to-trenddb.log" .Values.logFile.mountPath)
+            "rollOnFileSizeLimit" true
+            "fileSizeLimitBytes" $fileSizeBytes
+            "retainedFileCountLimit" .Values.logFile.retainedFileCountLimit
+            "restrictedToMinimumLevel" .Values.logFile.fileLevel
+          ) }}
+      {{- $writeTo = append $writeTo $fileSink }}
+    {{- end }}
+    {{- $_ := set $serilog "WriteTo" $writeTo }}
+    {{- $_ := set $config "Serilog" $serilog }}
+    {{- $config | toPrettyJson | nindent 4 }}
