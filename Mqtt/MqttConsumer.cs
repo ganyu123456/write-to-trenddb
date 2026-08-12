@@ -205,8 +205,8 @@ public sealed class MqttConsumer : IAsyncDisposable
                 matched++;
             }
 
-            _logger.LogDebug(
-                "主题 {Topic}（设备 {DeviceId}）：收到 {Total} 条，命中映射 {Matched} 条，缓冲区大小 {BufSize}",
+            _logger.LogInformation(
+                "主题 {Topic}（设备 {DeviceId}）：收到 {Total} 条，命中映射 {Matched} 条，缓冲区 {BufSize}",
                 topic, msg.DeviceId, msg.BatchData.Count, matched, _buffer.Count);
         }
         catch (Exception ex)

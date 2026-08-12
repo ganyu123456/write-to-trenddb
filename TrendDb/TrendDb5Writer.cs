@@ -73,6 +73,11 @@ public sealed class TrendDb5Writer : ITrendDb5Writer
                 var resList = new List<int>();
                 var ret = pool.SetValueByTagName(dbName, validShortNames, tagValues, ref resList);
 
+                _logger.LogDebug(
+                    "SetValueByTagName 返回：db={Db}, count={Count}, retCode={RetCode}, sysCode={SysCode}, resList=[{ResList}]",
+                    dbName, validShortNames.Count, ret.retCode, ret.sysCode,
+                    string.Join(",", resList));
+
                 if (!ret.Ok())
                 {
                     _logger.LogWarning(
@@ -97,13 +102,15 @@ public sealed class TrendDb5Writer : ITrendDb5Writer
 
                     if (_logger.IsEnabled(LogLevel.Debug))
                     {
-                        foreach (var shortName in validShortNames)
+                        for (var i = 0; i < validShortNames.Count; i++)
                         {
+                            var shortName = validShortNames[i];
                             var fullName = dbName + "." + shortName;
                             input.TryGetValue(fullName, out var td);
+                            var rc = i < resList.Count ? resList[i].ToString() : "?";
                             _logger.LogDebug(
-                                "写入测点 {Tag} = {Value} (state={State}) 到 {Db}",
-                                shortName, td?.Value, td?.ValueState, dbName);
+                                "写入测点 {Tag} = {Value} (ts={Timestamp:yyyy-MM-dd HH:mm:ss}, state={State}) 到 {Db}, rc={Rc}",
+                                shortName, td?.Value, td?.TimeStamp, td?.ValueState, dbName, rc);
                         }
                     }
                 }

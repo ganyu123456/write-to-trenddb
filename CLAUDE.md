@@ -15,6 +15,23 @@ ASPNETCORE_ENVIRONMENT=Development dotnet run
 
 There are no tests in this repository. The project targets `net10.0` with `AllowUnsafeBlocks=true` (required by the TrendDB5 native SDK).
 
+## Startup & DI flow
+
+`Program.cs` registers services in this order (order matters — each depends on the previous):
+
+1. `TrendDb5ConnectionPool` (singleton) — initializes N `TrendDb_API.Pool` objects in constructor, stripping the `Type=TrendDB5;` prefix from connection strings
+2. `ITrendDb5Writer` / `TrendDb5Writer` (singleton) — depends on pool
+3. `MqttConsumer` (singleton) — loads points CSV in constructor, initializes empty `ConcurrentDictionary` buffer
+4. `TrendDbWriteWorker` (hosted service) — `ExecuteAsync` starts MQTT consumer first, then enters `PeriodicTimer` loop
+
+**Points file validation happens twice** by design:
+- `Program.cs` checks `File.Exists(PointsFilePath)` and throws on missing file — fail-fast at startup
+- `MqttConsumer` constructor checks again — if CSV is missing, it falls back to `TagMappings` from `appsettings.json` (for small-scale deployments without hostPath mounts)
+
+## Dockerfile
+
+Multi-stage build (`mcr.microsoft.com/dotnet/sdk:10.0` → `runtime:10.0`). Runtime image installs debugging tools: `iputils-ping`, `curl`, `telnet`, `mosquitto-clients`. Container timezone is set to `Asia/Shanghai`. Health check uses `pgrep -x WriteToTrendDb`.
+
 **Logging:** Uses Serilog with Console + File sinks. File sink supports size-based rolling (`rollOnFileSizeLimit` + `retainedFileCountLimit`). Log config is in the `Serilog` section of `appsettings.json`; File sink args are injected by the ConfigMap template from `logFile.*` values.
 
 ## Architecture
@@ -29,9 +46,9 @@ MQTT Broker → MqttConsumer (ConcurrentDictionary buffer) → TrendDbWriteWorke
                                                                TrendDB5
 ```
 
-- **`MqttConsumer`** — singleton. Connects to MQTT broker with auto-reconnect (5s backoff). Parses incoming `MqttBatchMessage` JSON, filters against the points file `Source→Target` dictionary, and stores latest values in a `ConcurrentDictionary` buffer.
+- **`MqttConsumer`** — singleton. Connects to MQTT broker with auto-reconnect (5s backoff). Uses `_hasConnectedOnce` flag to separate initial connection retries (handled by `ConnectWithRetryAsync`'s while-loop) from post-connection disconnects (handled by `DisconnectedAsync` event). Parses incoming `MqttBatchMessage` JSON, filters against the points file `Source→Target` dictionary, and stores latest values in a `ConcurrentDictionary` buffer.
 - **`TrendDbWriteWorker`** — `BackgroundService`. On startup, kicks off `MqttConsumer.StartAsync()`, then loops on `PeriodicTimer` (default 5s). Each tick calls `MqttConsumer.Flush()` (atomically drains + clears the buffer) and passes data to `ITrendDb5Writer.SetRtValuesByNames()`.
-- **`TrendDb5Writer`** — groups points by database prefix (text before first `.`), calls `Pool.SetValueByTagName(dbName, names, values, ref resList)` per database.
+- **`TrendDb5Writer`** — groups points by database prefix (text before first `.`), calls `Pool.SetValueByTagName(dbName, names, values, ref resList)` per database. `ToUnixMilliseconds` handles DateTime Kind conversion (UTC/Local/Unspecified) before converting to the ulong timestamp TrendDB5 expects.
 - **`TrendDb5ConnectionPool`** — creates N `TrendDb_API.Pool` objects on startup, round-robin acquires one for each write. Connection strings are comma-separated multi-db; the `Type=TrendDB5;` prefix is stripped before passing to the SDK.
 
 ## TrendDB5 SDK dependency
@@ -81,6 +98,8 @@ Located at `helm/write-to-trenddb/`. Key deployment characteristics:
 - `logFile` section controls file log rotation (size limit, retention count, minimum level)
 - `appsettings.json` injected as ConfigMap with checksum annotation for auto-rollout on config change
 - `paramSchema.json` at repo root defines the platform deployment wizard form schema
+
+`resource/deployment.yaml` is a reference non-Helm deployment manifest (uses `nodeName` hard scheduling, ConfigMap subPath mount). It predates the Helm chart and is not used in production.
 
 ## MQTT message format
 
