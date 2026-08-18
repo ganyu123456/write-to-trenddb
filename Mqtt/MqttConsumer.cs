@@ -196,6 +196,13 @@ public sealed class MqttConsumer : IAsyncDisposable
                 if (!_nameMapping.TryGetValue(name, out var targetName))
                     continue;
 
+                // 采集端对「无数据」测点可能下发 JSON null，跳过而非让整批中断
+                if (sv is null)
+                {
+                    _logger.LogDebug("主题 {Topic} 测点 {Name}（映射 {Target}）值为 null，已跳过", topic, name, targetName);
+                    continue;
+                }
+
                 _buffer[targetName] = new TagData
                 {
                     Value      = sv.Value,
