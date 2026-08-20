@@ -5,7 +5,7 @@
 # ── 镜像 ──────────────────────────────────────────────────
 image:
   repository: 10.253.3.91:30550/library/write-to-trenddb
-  tag: "2.8.0"
+  tag: "2.9.0"
   pullPolicy: IfNotPresent
 
 imagePullSecrets:
@@ -61,8 +61,8 @@ appSettings:
     Broker: "192.168.122.231"
     Port: 1884
     ClientId: "trenddb-writer"
-    Username: ""
-    Password: ""
+    Username: "sys"
+    Password: "Luculent1!"
     # 订阅的 MQTT 主题列表（支持多个，对应多个 mapper 实例）
     Topics:
       - "device/sis/data"
