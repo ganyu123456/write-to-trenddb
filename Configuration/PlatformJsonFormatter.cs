@@ -6,7 +6,7 @@ namespace WriteToTrendDb.Configuration;
 
 /// <summary>
 /// 平台日志规范的 JSON formatter。
-/// 输出字段：time / level（大写 TRACE|DEBUG|INFO|WARN|ERROR|FATAL）/ message。
+/// 输出字段：time / level（大写 TRACE|DEBUG|INFO|WARN|ERROR|FATAL）/ message / service。
 /// 对齐云边协同平台 Fluent Bit 的 json_log Parser 提取规则，
 /// 使日志级别能被日志中心正确识别并分流。
 /// </summary>
@@ -33,7 +33,7 @@ public sealed class PlatformJsonFormatter : ITextFormatter
         sb.Append(level);
         sb.Append("\",\"message\":\"");
         sb.Append(JsonEscape(logEvent.RenderMessage()));
-        sb.Append('"');
+        sb.Append("\",\"service\":\"write-to-trenddb\"");
 
         if (logEvent.Exception != null)
         {

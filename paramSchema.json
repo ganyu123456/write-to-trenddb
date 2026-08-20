@@ -10,16 +10,16 @@
         "label": "镜像仓库地址",
         "type": "string",
         "required": true,
-        "defaultValue": "harbor.zkjgy.online/library/write-to-trenddb",
+        "defaultValue": "10.253.3.91:30550/library/write-to-trenddb",
         "yamlPath": "image.repository",
-        "placeholder": "如 harbor.zkjgy.online/library/write-to-trenddb",
+        "placeholder": "如 10.253.3.91:30550/library/write-to-trenddb",
         "span": 24
       },
       {
         "key": "tag",
         "label": "镜像版本",
         "type": "string",
-        "defaultValue": "2.5.0",
+        "defaultValue": "2.8.0",
         "yamlPath": "image.tag",
         "placeholder": "如 latest、v1.0.0",
         "span": 12
