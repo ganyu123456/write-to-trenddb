@@ -19,6 +19,11 @@ public sealed class TrendDbWriteWorker : BackgroundService
     private readonly ITrendDb5Writer _writer;
     private readonly int _intervalSeconds;
 
+    private long _writtenPointCount;
+    private long _writeSuccessCount;
+    private long _writeFailCount;
+    private DateTime _lastStatsAt = DateTime.UtcNow;
+
     public TrendDbWriteWorker(
         ILogger<TrendDbWriteWorker> logger,
         MqttConsumer mqttConsumer,
@@ -48,20 +53,22 @@ public sealed class TrendDbWriteWorker : BackgroundService
             {
                 var data = _mqttConsumer.Flush();
 
-                if (data.Count == 0)
+                if (data.Count > 0)
                 {
-                    _logger.LogDebug("本轮无新数据，跳过写入");
-                    continue;
+                    _logger.LogInformation("本轮回写 {Count} 个测点到 TrendDB5", data.Count);
+
+                    var success = _writer.SetRtValuesByNames(data);
+                    Interlocked.Add(ref _writtenPointCount, data.Count);
+                    if (success) Interlocked.Increment(ref _writeSuccessCount);
+                    else Interlocked.Increment(ref _writeFailCount);
+
+                    _logger.LogInformation(
+                        "回写完成：{Result}，{Count} 个测点",
+                        success ? "全部成功" : "部分失败",
+                        data.Count);
                 }
 
-                _logger.LogInformation("本轮回写 {Count} 个测点到 TrendDB5", data.Count);
-
-                var success = _writer.SetRtValuesByNames(data);
-
-                _logger.LogInformation(
-                    "回写完成：{Result}，{Count} 个测点",
-                    success ? "全部成功" : "部分失败",
-                    data.Count);
+                LogStatsIfDue();
             }
             catch (OperationCanceledException) when (stoppingToken.IsCancellationRequested)
             {
@@ -72,6 +79,22 @@ public sealed class TrendDbWriteWorker : BackgroundService
                 _logger.LogError(ex, "写入周期发生异常，等待下一轮");
             }
         }
+    }
+
+    /// <summary>每 60 秒打一条 Info 汇总，替代逐测点 Debug，便于观察摄入与回写速率。</summary>
+    private void LogStatsIfDue()
+    {
+        var now = DateTime.UtcNow;
+        if ((now - _lastStatsAt).TotalSeconds < 60) return;
+        _lastStatsAt = now;
+
+        var s = _mqttConsumer.GetStats();
+        _logger.LogInformation(
+            "统计汇总：MQTT 收到 {RcvdMsg} 条消息 / {RcvdPts} 个点，null 跳过 {Null}，断连 {Disc} 次；回写 {Wrote} 个点，成功 {Ok} 轮 / 失败 {Fail} 轮",
+            s.ReceivedMessages, s.ReceivedPoints, s.NullSkipped, s.Disconnects,
+            Interlocked.Read(ref _writtenPointCount),
+            Interlocked.Read(ref _writeSuccessCount),
+            Interlocked.Read(ref _writeFailCount));
     }
 
     public override async Task StopAsync(CancellationToken cancellationToken)

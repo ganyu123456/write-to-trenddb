@@ -99,20 +99,6 @@ public sealed class TrendDb5Writer : ITrendDb5Writer
                                 dbName, validShortNames[i], errTd?.Value, resList[i]);
                         }
                     }
-
-                    if (_logger.IsEnabled(LogLevel.Debug))
-                    {
-                        for (var i = 0; i < validShortNames.Count; i++)
-                        {
-                            var shortName = validShortNames[i];
-                            var fullName = dbName + "." + shortName;
-                            input.TryGetValue(fullName, out var td);
-                            var rc = i < resList.Count ? resList[i].ToString() : "?";
-                            _logger.LogDebug(
-                                "写入测点 {Tag} = {Value} (ts={Timestamp:yyyy-MM-dd HH:mm:ss}, state={State}) 到 {Db}, rc={Rc}",
-                                shortName, td?.Value, td?.TimeStamp, td?.ValueState, dbName, rc);
-                        }
-                    }
                 }
             }
             catch (Exception ex)

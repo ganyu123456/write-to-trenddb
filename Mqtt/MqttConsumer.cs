@@ -5,6 +5,7 @@ using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.Options;
 using MQTTnet;
 using MQTTnet.Client;
+using MQTTnet.Protocol;
 using WriteToTrendDb.Configuration;
 using WriteToTrendDb.Models;
 
@@ -33,6 +34,12 @@ public sealed class MqttConsumer : IAsyncDisposable
     // 标记是否已至少成功连接过一次；
     // DisconnectedAsync 只在成功连接后才触发重连，避免与初次连接重试竞争
     private volatile bool _hasConnectedOnce;
+
+    // 运行期累计统计，供 Worker 每分钟汇总，替代逐测点 Debug 日志
+    private long _receivedMessageCount;
+    private long _receivedPointCount;
+    private long _nullSkippedCount;
+    private long _disconnectCount;
 
     public MqttConsumer(IOptions<AppSettings> options, IConfiguration config, ILogger<MqttConsumer> logger)
     {
@@ -101,6 +108,7 @@ public sealed class MqttConsumer : IAsyncDisposable
         // 初次连接失败由 ConnectWithRetryAsync 的 while 循环独立处理，两条路径互不干扰。
         _mqttClient.DisconnectedAsync += args =>
         {
+            Interlocked.Increment(ref _disconnectCount);
             _logger.LogWarning("MQTT 断开连接：{Reason}", args.ReasonString);
 
             if (_hasConnectedOnce && !ct.IsCancellationRequested)
@@ -133,7 +141,7 @@ public sealed class MqttConsumer : IAsyncDisposable
                     .WithTcpServer(_mqttSettings.Broker, _mqttSettings.Port)
                     .WithClientId(_mqttSettings.ClientId)
                     .WithKeepAlivePeriod(TimeSpan.FromSeconds(30))
-                    .WithCleanSession(true);
+                    .WithCleanSession(false);
 
                 if (!string.IsNullOrEmpty(_mqttSettings.Username))
                     optionsBuilder = optionsBuilder.WithCredentials(_mqttSettings.Username, _mqttSettings.Password);
@@ -153,10 +161,10 @@ public sealed class MqttConsumer : IAsyncDisposable
                 foreach (var topic in _mqttSettings.Topics)
                 {
                     var subOptions = new MqttClientSubscribeOptionsBuilder()
-                        .WithTopicFilter(f => f.WithTopic(topic))
+                        .WithTopicFilter(f => f.WithTopic(topic).WithQualityOfServiceLevel(MqttQualityOfServiceLevel.AtLeastOnce))
                         .Build();
                     await _mqttClient.SubscribeAsync(subOptions, ct).ConfigureAwait(false);
-                    _logger.LogInformation("已订阅主题：{Topic}", topic);
+                    _logger.LogInformation("已订阅主题：{Topic}（QoS=AtLeastOnce）", topic);
                 }
 
                 // 标记已成功连接，允许 DisconnectedAsync 触发断线重连
@@ -199,7 +207,7 @@ public sealed class MqttConsumer : IAsyncDisposable
                 // 采集端对「无数据」测点可能下发 JSON null，跳过而非让整批中断
                 if (sv is null)
                 {
-                    _logger.LogDebug("主题 {Topic} 测点 {Name}（映射 {Target}）值为 null，已跳过", topic, name, targetName);
+                    Interlocked.Increment(ref _nullSkippedCount);
                     continue;
                 }
 
@@ -211,6 +219,9 @@ public sealed class MqttConsumer : IAsyncDisposable
                 };
                 matched++;
             }
+
+            Interlocked.Increment(ref _receivedMessageCount);
+            Interlocked.Add(ref _receivedPointCount, matched);
 
             _logger.LogInformation(
                 "主题 {Topic}（设备 {DeviceId}）：收到 {Total} 条，命中映射 {Matched} 条，缓冲区 {BufSize}",
@@ -239,6 +250,13 @@ public sealed class MqttConsumer : IAsyncDisposable
         return result;
     }
 
+    /// <summary>获取运行期累计统计，供 Worker 定时汇总。</summary>
+    public MqttStats GetStats() => new(
+        Interlocked.Read(ref _receivedMessageCount),
+        Interlocked.Read(ref _receivedPointCount),
+        Interlocked.Read(ref _nullSkippedCount),
+        Interlocked.Read(ref _disconnectCount));
+
     /// <summary>将 Unix 秒级时间戳转换为 UTC DateTime。</summary>
     private static DateTime ParseUnixTimestamp(long unixSeconds)
         => DateTimeOffset.FromUnixTimeSeconds(unixSeconds).UtcDateTime;
@@ -262,3 +280,10 @@ public sealed class MqttConsumer : IAsyncDisposable
         }
     }
 }
+
+/// <summary>MQTT 消费端运行期累计统计。</summary>
+public sealed record MqttStats(
+    long ReceivedMessages,
+    long ReceivedPoints,
+    long NullSkipped,
+    long Disconnects);
