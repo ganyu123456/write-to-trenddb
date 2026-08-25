@@ -5,7 +5,7 @@
 # ── 镜像 ──────────────────────────────────────────────────
 image:
   repository: 10.253.3.91:30550/library/write-to-trenddb
-  tag: "2.10.0"
+  tag: "2.10.1"
   pullPolicy: IfNotPresent
 
 imagePullSecrets:

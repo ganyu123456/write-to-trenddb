@@ -41,6 +41,9 @@ public sealed class MqttConsumer : IAsyncDisposable
     private long _nullSkippedCount;
     private long _disconnectCount;
 
+    // 重连互斥标记：0=空闲，1=已有重连任务在跑，避免并发 ConnectWithRetryAsync
+    private int _reconnecting;
+
     public MqttConsumer(IOptions<AppSettings> options, IConfiguration config, ILogger<MqttConsumer> logger)
     {
         _logger = logger;
@@ -111,7 +114,8 @@ public sealed class MqttConsumer : IAsyncDisposable
             Interlocked.Increment(ref _disconnectCount);
             _logger.LogWarning("MQTT 断开连接：{Reason}", args.ReasonString);
 
-            if (_hasConnectedOnce && !ct.IsCancellationRequested)
+            if (_hasConnectedOnce && !ct.IsCancellationRequested
+                && Interlocked.CompareExchange(ref _reconnecting, 1, 0) == 0)
             {
                 // 用 CancellationToken.None 启动任务，让任务本身用 ct 感知关闭
                 _ = Task.Run(async () =>
@@ -122,6 +126,10 @@ public sealed class MqttConsumer : IAsyncDisposable
                         await ConnectWithRetryAsync(ct).ConfigureAwait(false);
                     }
                     catch (OperationCanceledException) { /* 关闭时忽略 */ }
+                    finally
+                    {
+                        Interlocked.Exchange(ref _reconnecting, 0);
+                    }
                 }, CancellationToken.None);
             }
 
@@ -137,27 +145,32 @@ public sealed class MqttConsumer : IAsyncDisposable
         {
             try
             {
-                var optionsBuilder = new MqttClientOptionsBuilder()
-                    .WithTcpServer(_mqttSettings.Broker, _mqttSettings.Port)
-                    .WithClientId(_mqttSettings.ClientId)
-                    .WithKeepAlivePeriod(TimeSpan.FromSeconds(30))
-                    .WithCleanSession(false);
-
-                if (!string.IsNullOrEmpty(_mqttSettings.Username))
-                    optionsBuilder = optionsBuilder.WithCredentials(_mqttSettings.Username, _mqttSettings.Password);
-
-                var connectResult = await _mqttClient!
-                    .ConnectAsync(optionsBuilder.Build(), ct)
-                    .ConfigureAwait(false);
-
-                if (connectResult.ResultCode != MqttClientConnectResultCode.Success)
+                // 若已连接（并发重连中对方已连上，或连接成功后订阅失败再重试），
+                // 跳过 ConnectAsync 直接补订阅，避免重复连接抛「already connected」异常
+                if (!_mqttClient!.IsConnected)
                 {
-                    _logger.LogWarning("MQTT 连接被拒绝：{Code}，5 秒后重试", connectResult.ResultCode);
-                    await Task.Delay(TimeSpan.FromSeconds(5), ct).ConfigureAwait(false);
-                    continue;
+                    var optionsBuilder = new MqttClientOptionsBuilder()
+                        .WithTcpServer(_mqttSettings.Broker, _mqttSettings.Port)
+                        .WithClientId(_mqttSettings.ClientId)
+                        .WithKeepAlivePeriod(TimeSpan.FromSeconds(30))
+                        .WithCleanSession(false);
+
+                    if (!string.IsNullOrEmpty(_mqttSettings.Username))
+                        optionsBuilder = optionsBuilder.WithCredentials(_mqttSettings.Username, _mqttSettings.Password);
+
+                    var connectResult = await _mqttClient
+                        .ConnectAsync(optionsBuilder.Build(), ct)
+                        .ConfigureAwait(false);
+
+                    if (connectResult.ResultCode != MqttClientConnectResultCode.Success)
+                    {
+                        _logger.LogWarning("MQTT 连接被拒绝：{Code}，5 秒后重试", connectResult.ResultCode);
+                        await Task.Delay(TimeSpan.FromSeconds(5), ct).ConfigureAwait(false);
+                        continue;
+                    }
                 }
 
-                // 订阅所有配置的主题
+                // 订阅所有配置的主题（重复订阅幂等）
                 foreach (var topic in _mqttSettings.Topics)
                 {
                     var subOptions = new MqttClientSubscribeOptionsBuilder()

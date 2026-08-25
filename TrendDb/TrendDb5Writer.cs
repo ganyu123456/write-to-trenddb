@@ -95,8 +95,8 @@ public sealed class TrendDb5Writer : ITrendDb5Writer
                             var errFullName = dbName + "." + validShortNames[i];
                             input.TryGetValue(errFullName, out var errTd);
                             _logger.LogWarning(
-                                "测点写入失败：db={Db}, tag={Tag}, value={Value}, code={Code}",
-                                dbName, validShortNames[i], errTd?.Value, resList[i]);
+                                "测点写入失败：db={Db}, tag={Tag}, value={Value}, ts={Timestamp:yyyy-MM-dd HH:mm:ss}, code={Code}",
+                                dbName, validShortNames[i], errTd?.Value, errTd?.TimeStamp, resList[i]);
                         }
                     }
                 }

@@ -2,8 +2,8 @@ apiVersion: v2
 name: write-to-trenddb
 description: 消费 MQTT 传感器数据并写入 TrendDB5 时序数据库的 .NET Worker Service
 type: application
-version: 2.10.0
-appVersion: "2.10.0"
+version: 2.10.1
+appVersion: "2.10.1"
 keywords:
   - iot
   - trenddb
