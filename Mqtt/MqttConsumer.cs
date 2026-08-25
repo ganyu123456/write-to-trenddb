@@ -103,7 +103,7 @@ public sealed class MqttConsumer : IAsyncDisposable
 
         _mqttClient.ConnectedAsync += _ =>
         {
-            _logger.LogInformation("MQTT 已连接：{Broker}:{Port}", _mqttSettings.Broker, _mqttSettings.Port);
+            _logger.LogInformation("MQTT 已连接（ClientId={ClientId}）：{Broker}:{Port}", _mqttSettings.ClientId, _mqttSettings.Broker, _mqttSettings.Port);
             return Task.CompletedTask;
         };
 
@@ -112,11 +112,13 @@ public sealed class MqttConsumer : IAsyncDisposable
         _mqttClient.DisconnectedAsync += args =>
         {
             Interlocked.Increment(ref _disconnectCount);
-            _logger.LogWarning("MQTT 断开连接：{Reason}", args.ReasonString);
+            _logger.LogWarning("MQTT 断开连接（ClientId={ClientId}）：{Reason}", _mqttSettings.ClientId, args.ReasonString);
 
             if (_hasConnectedOnce && !ct.IsCancellationRequested
                 && Interlocked.CompareExchange(ref _reconnecting, 1, 0) == 0)
             {
+                _logger.LogInformation("MQTT 断线重连：5 秒后开始重连（ClientId={ClientId}）", _mqttSettings.ClientId);
+
                 // 用 CancellationToken.None 启动任务，让任务本身用 ct 感知关闭
                 _ = Task.Run(async () =>
                 {
@@ -236,9 +238,10 @@ public sealed class MqttConsumer : IAsyncDisposable
             Interlocked.Increment(ref _receivedMessageCount);
             Interlocked.Add(ref _receivedPointCount, matched);
 
+            var sendTime = DateTimeOffset.FromUnixTimeMilliseconds(msg.Timestamp).ToLocalTime();
             _logger.LogInformation(
-                "主题 {Topic}（设备 {DeviceId}）：收到 {Total} 条，命中映射 {Matched} 条，缓冲区 {BufSize}",
-                topic, msg.DeviceId, msg.BatchData.Count, matched, _buffer.Count);
+                "主题 {Topic}（设备 {DeviceId}）：收到 {Total} 条，命中映射 {Matched} 条，缓冲区 {BufSize}，消息发送时间 {SendTime:yyyy-MM-dd HH:mm:ss.fff}",
+                topic, msg.DeviceId, msg.BatchData.Count, matched, _buffer.Count, sendTime);
         }
         catch (Exception ex)
         {
