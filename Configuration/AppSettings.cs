@@ -57,6 +57,13 @@ public sealed class MqttSettings
     /// mapper 默认推送到 {topicPrefix}/batch。
     /// </summary>
     public List<string> Topics { get; set; } = [];
+
+    /// <summary>
+    /// 收包线程 → 消费线程 之间的有界队列容量（条消息）。
+    /// 满时丢最旧（DropOldest）。注意：这里单位是「消息条数」而非测点数；
+    /// 容量越大内存占用越高（单条消息 ≈ 点数 × ~70 字节），测点量越大反而应调小以免 OOM。
+    /// </summary>
+    public int ChannelCapacity { get; set; } = 256;
 }
 
 /// <summary>

@@ -5,7 +5,7 @@
 # ── 镜像 ──────────────────────────────────────────────────
 image:
   repository: 10.253.3.91:30550/library/write-to-trenddb
-  tag: "2.10.3"
+  tag: "2.11.0"
   pullPolicy: IfNotPresent
 
 imagePullSecrets:
@@ -24,11 +24,11 @@ dnsPolicy: ClusterFirstWithHostNet
 # ── 资源限制 ──────────────────────────────────────────────
 resources:
   requests:
-    cpu: 200m
-    memory: 256Mi
+    cpu: "2"
+    memory: 1Gi
   limits:
-    cpu: 1000m
-    memory: 512Mi
+    cpu: "4"
+    memory: 2Gi
 
 # ── 日志文件持久化（hostPath 挂载到节点本地路径）─────────
 # 日志文件通过 hostPath 挂载写入边缘节点，支持按大小自动轮转。
@@ -66,6 +66,10 @@ appSettings:
     # 订阅的 MQTT 主题列表（支持多个，对应多个 mapper 实例）
     Topics:
       - "device/sis/data"
+    # 收包线程 → 消费线程 之间的有界队列容量（条消息）。
+    # 满时丢最旧（DropOldest）。单位是「消息条数」而非测点数，
+    # 容量越大内存占用越高（单条 ≈ 点数 × ~70 字节），测点量越大反而应调小以免 OOM。
+    ChannelCapacity: 256
 
   # 点表 CSV 文件在容器内的路径，由下方 pointsFile.hostPath 挂载到节点本地文件
   PointsFilePath: "/config/points.csv"

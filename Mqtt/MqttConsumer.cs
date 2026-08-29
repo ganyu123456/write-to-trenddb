@@ -1,6 +1,7 @@
 using System.Collections.Concurrent;
 using System.Text;
 using System.Text.Json;
+using System.Threading.Channels;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.Options;
 using MQTTnet;
@@ -28,6 +29,11 @@ public sealed class MqttConsumer : IAsyncDisposable
     // 每次 Flush 后清空，保证写入的是最新值
     private readonly ConcurrentDictionary<string, TagData> _buffer = new(StringComparer.OrdinalIgnoreCase);
 
+    // MQTT 收包回调 → 后台消费循环 之间的有界队列。
+    // 满时 DropOldest：淘汰最旧、保留最新，保证收包线程永不阻塞（避免 broker 侧 send_pend 堆积）。
+    private readonly Channel<MqttRawMessage> _messageChannel;
+    private readonly int _channelCapacity;
+
     private IMqttClient? _mqttClient;
     private bool _disposed;
 
@@ -40,6 +46,7 @@ public sealed class MqttConsumer : IAsyncDisposable
     private long _receivedPointCount;
     private long _nullSkippedCount;
     private long _disconnectCount;
+    private long _droppedMessageCount;
 
     // 重连互斥标记：0=空闲，1=已有重连任务在跑，避免并发 ConnectWithRetryAsync
     private int _reconnecting;
@@ -63,6 +70,15 @@ public sealed class MqttConsumer : IAsyncDisposable
                 .Where(m => !string.IsNullOrWhiteSpace(m.Source) && !string.IsNullOrWhiteSpace(m.Target))
                 .ToDictionary(m => m.Source, m => m.Target, StringComparer.OrdinalIgnoreCase);
         }
+
+        // 容量来自配置（Mqtt.ChannelCapacity），至少为 1。单位是「消息条数」，不是测点数。
+        _channelCapacity = Math.Max(1, _mqttSettings.ChannelCapacity);
+        _messageChannel = Channel.CreateBounded<MqttRawMessage>(new BoundedChannelOptions(_channelCapacity)
+        {
+            FullMode = BoundedChannelFullMode.DropOldest,
+            SingleReader = true,
+            SingleWriter = false,
+        });
 
         _logger.LogInformation(
             "MqttConsumer 初始化：{Count} 条测点映射，订阅主题：{Topics}",
@@ -138,6 +154,9 @@ public sealed class MqttConsumer : IAsyncDisposable
             return Task.CompletedTask;
         };
 
+        // 后台消费循环：从 Channel 取原始消息做反序列化 + 映射，与收包线程解耦
+        _ = Task.Run(() => ConsumeLoopAsync(ct), CancellationToken.None);
+
         await ConnectWithRetryAsync(ct).ConfigureAwait(false);
     }
 
@@ -200,17 +219,62 @@ public sealed class MqttConsumer : IAsyncDisposable
 
     private Task OnMessageReceivedAsync(MqttApplicationMessageReceivedEventArgs args)
     {
-        var topic = args.ApplicationMessage.Topic;
+        // 收包回调只做一件事：拷贝 payload 并入队，立即返回，不阻塞 MQTTnet 收包循环。
+        // 反序列化 + 映射等重活交给 ConsumeLoopAsync。
         try
         {
-            var payload = Encoding.UTF8.GetString(args.ApplicationMessage.PayloadSegment);
+            var payload = args.ApplicationMessage.PayloadSegment.ToArray();
+            var topic = args.ApplicationMessage.Topic;
+
+            // DropOldest 满时 TryWrite 仍返回 true（淘汰最旧后写入），无法靠返回值判断丢弃；
+            // 因此在写入前用 Count 预检查：已满则本次会淘汰最旧一条，计入丢弃指标。
+            if (_messageChannel.Reader.Count >= _channelCapacity)
+            {
+                Interlocked.Increment(ref _droppedMessageCount);
+            }
+
+            if (!_messageChannel.Writer.TryWrite(new MqttRawMessage(topic, payload)))
+            {
+                // 仅在 Channel 已关闭时才走到这里
+                Interlocked.Increment(ref _droppedMessageCount);
+            }
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "入队 MQTT 消息时发生异常，主题：{Topic}", args.ApplicationMessage.Topic);
+        }
+
+        return Task.CompletedTask;
+    }
+
+    /// <summary>后台消费循环：从 Channel 取出原始消息，做解码、反序列化、映射过滤，写入缓冲区。</summary>
+    private async Task ConsumeLoopAsync(CancellationToken ct)
+    {
+        try
+        {
+            await foreach (var raw in _messageChannel.Reader.ReadAllAsync(ct).ConfigureAwait(false))
+            {
+                ProcessMessage(raw.Topic, raw.Payload);
+            }
+        }
+        catch (OperationCanceledException) when (ct.IsCancellationRequested)
+        {
+            // 关闭时正常退出
+        }
+    }
+
+    private void ProcessMessage(string topic, byte[] payload)
+    {
+        try
+        {
+            var json = Encoding.UTF8.GetString(payload);
 
             // 消息格式：{"timestamp":<ms>,"deviceId":"...","batchData":{"测点名":{"value":...,"timestamp":<s>,"state":...},...}}
-            var msg = JsonSerializer.Deserialize<MqttBatchMessage>(payload);
+            var msg = JsonSerializer.Deserialize<MqttBatchMessage>(json);
             if (msg?.BatchData is null || msg.BatchData.Count == 0)
             {
                 _logger.LogDebug("主题 {Topic} 收到空消息或 batchData 为空，已跳过", topic);
-                return Task.CompletedTask;
+                return;
             }
 
             var matched = 0;
@@ -247,8 +311,6 @@ public sealed class MqttConsumer : IAsyncDisposable
         {
             _logger.LogError(ex, "处理 MQTT 消息时发生异常，主题：{Topic}", topic);
         }
-
-        return Task.CompletedTask;
     }
 
     /// <summary>
@@ -271,7 +333,8 @@ public sealed class MqttConsumer : IAsyncDisposable
         Interlocked.Read(ref _receivedMessageCount),
         Interlocked.Read(ref _receivedPointCount),
         Interlocked.Read(ref _nullSkippedCount),
-        Interlocked.Read(ref _disconnectCount));
+        Interlocked.Read(ref _disconnectCount),
+        Interlocked.Read(ref _droppedMessageCount));
 
     /// <summary>将 Unix 秒级时间戳转换为 UTC DateTime。</summary>
     private static DateTime ParseUnixTimestamp(long unixSeconds)
@@ -281,6 +344,8 @@ public sealed class MqttConsumer : IAsyncDisposable
     {
         if (_disposed) return;
         _disposed = true;
+
+        _messageChannel.Writer.TryComplete();
 
         if (_mqttClient is not null)
         {
@@ -302,4 +367,8 @@ public sealed record MqttStats(
     long ReceivedMessages,
     long ReceivedPoints,
     long NullSkipped,
-    long Disconnects);
+    long Disconnects,
+    long DroppedMessages);
+
+/// <summary>入队用的原始 MQTT 消息（已拷贝 payload，避免收包缓冲区被复用）。</summary>
+public sealed record MqttRawMessage(string Topic, byte[] Payload);

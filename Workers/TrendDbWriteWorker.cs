@@ -90,8 +90,8 @@ public sealed class TrendDbWriteWorker : BackgroundService
 
         var s = _mqttConsumer.GetStats();
         _logger.LogInformation(
-            "统计汇总：MQTT 收到 {RcvdMsg} 条消息 / {RcvdPts} 个点，null 跳过 {Null}，断连 {Disc} 次；回写 {Wrote} 个点，成功 {Ok} 轮 / 失败 {Fail} 轮",
-            s.ReceivedMessages, s.ReceivedPoints, s.NullSkipped, s.Disconnects,
+            "统计汇总：MQTT 收到 {RcvdMsg} 条消息 / {RcvdPts} 个点，null 跳过 {Null}，断连 {Disc} 次，丢弃 {Drop} 条；回写 {Wrote} 个点，成功 {Ok} 轮 / 失败 {Fail} 轮",
+            s.ReceivedMessages, s.ReceivedPoints, s.NullSkipped, s.Disconnects, s.DroppedMessages,
             Interlocked.Read(ref _writtenPointCount),
             Interlocked.Read(ref _writeSuccessCount),
             Interlocked.Read(ref _writeFailCount));
