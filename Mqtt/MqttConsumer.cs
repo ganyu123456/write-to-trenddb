@@ -155,7 +155,7 @@ public sealed class MqttConsumer : IAsyncDisposable
                         .WithTcpServer(_mqttSettings.Broker, _mqttSettings.Port)
                         .WithClientId(_mqttSettings.ClientId)
                         .WithKeepAlivePeriod(TimeSpan.FromSeconds(30))
-                        .WithCleanSession(false);
+                        .WithCleanSession(true);
 
                     if (!string.IsNullOrEmpty(_mqttSettings.Username))
                         optionsBuilder = optionsBuilder.WithCredentials(_mqttSettings.Username, _mqttSettings.Password);
