@@ -64,6 +64,13 @@ public sealed class MqttSettings
     /// 容量越大内存占用越高（单条消息 ≈ 点数 × ~70 字节），测点量越大反而应调小以免 OOM。
     /// </summary>
     public int ChannelCapacity { get; set; } = 256;
+
+    /// <summary>
+    /// MQTT 底层 TCP socket 接收缓冲区大小（字节），对应 MQTTnet 的 BufferSize / SO_RCVBUF。
+    /// 默认 8192（8KB）在云边高延迟链路下会把 TCP 接收窗口卡死在 ~14KB，
+    /// 吞吐上限仅 ~1.4MB/s，导致 EMQX 发送队列堆积、socket 超时断连。默认提升到 1MB。
+    /// </summary>
+    public int SocketBufferSize { get; set; } = 1024 * 1024;
 }
 
 /// <summary>

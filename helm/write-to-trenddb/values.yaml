@@ -5,7 +5,7 @@
 # ── 镜像 ──────────────────────────────────────────────────
 image:
   repository: 10.253.3.91:30550/library/write-to-trenddb
-  tag: "3.0.0"
+  tag: "3.0.1"
   pullPolicy: IfNotPresent
 
 imagePullSecrets:
@@ -70,6 +70,9 @@ appSettings:
     # 满时丢最旧（DropOldest）。单位是「消息条数」而非测点数，
     # 容量越大内存占用越高（单条 ≈ 点数 × ~70 字节），测点量越大反而应调小以免 OOM。
     ChannelCapacity: 256
+    # MQTT 底层 TCP socket 接收缓冲区（字节）。默认 8KB 在云边高延迟链路下
+    # 会把 TCP 接收窗口卡死在 ~14KB，吞吐上限 ~1.4MB/s，导致 EMQX 发送队列堆积断连。
+    SocketBufferSize: 1048576
 
   # 点表 CSV 文件在容器内的路径，由下方 pointsFile.hostPath 挂载到节点本地文件
   PointsFilePath: "/config/points.csv"

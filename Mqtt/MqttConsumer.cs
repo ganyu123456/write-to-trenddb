@@ -171,7 +171,14 @@ public sealed class MqttConsumer : IAsyncDisposable
                 if (!_mqttClient!.IsConnected)
                 {
                     var optionsBuilder = new MqttClientOptionsBuilder()
-                        .WithTcpServer(_mqttSettings.Broker, _mqttSettings.Port)
+                        .WithTcpServer(tcp =>
+                        {
+                            tcp.Server = _mqttSettings.Broker;
+                            tcp.Port = _mqttSettings.Port;
+                            // 默认 8192（8KB）在云边高延迟链路下会把 TCP 接收窗口卡死在 ~14KB，
+                            // 吞吐上限仅 ~1.4MB/s，导致 EMQX 发送队列堆积、socket 超时断连。
+                            tcp.BufferSize = _mqttSettings.SocketBufferSize;
+                        })
                         .WithClientId(_mqttSettings.ClientId)
                         .WithKeepAlivePeriod(TimeSpan.FromSeconds(30))
                         .WithCleanSession(true);
