@@ -10,7 +10,11 @@ sensor-simulator-mapper / IoT Gateway
         │ MQTT 批量消息（JSON 字典）
         │ Topic: device/sis/data
         ▼
-  MqttConsumer（内存缓冲）
+  MqttConsumer（收包回调，只入队不处理）
+        │
+        │ Channel 有界队列（满时丢最旧保最新）
+        ▼
+  后台消费循环（反序列化 + 点表映射 + 内存缓冲）
         │
         │ 定时刷新（WriteIntervalSeconds）
         ▼
@@ -54,7 +58,7 @@ Type=TrendDB5;SERVER=ip:port;DATABASE=db01;UID=user;PWD=pass,SERVER=ip:port;DATA
 - 以 `Type=TrendDB5;` 开头（程序内部会自动跳过此前缀）
 - 多个数据库之间用逗号分隔
 - `PoolSize`：连接池大小，默认 7
-- `WriteIntervalSeconds`：回写间隔秒数，默认 1 秒
+- `WriteIntervalSeconds`：回写间隔秒数，代码默认 5，`appsettings.json` 配置为 1
 
 ### MQTT 配置
 
@@ -65,9 +69,18 @@ Type=TrendDB5;SERVER=ip:port;DATABASE=db01;UID=user;PWD=pass,SERVER=ip:port;DATA
   "ClientId": "trenddb-writer",
   "Username": "",
   "Password": "",
-  "Topics": ["device/sis/data"]
+  "Topics": ["device/sis/data"],
+  "ChannelCapacity": 256,
+  "SocketBufferSize": 1048576
 }
 ```
+
+| 字段 | 默认 | 说明 |
+|---|---|---|
+| `ChannelCapacity` | 256 | 收包→消费有界队列容量（**消息条数**，非测点数）。满时丢弃最旧、保留最新，保证收包线程永不阻塞。测点量大时**应调小**以免单条消息占用过高内存 |
+| `SocketBufferSize` | 1048576 | MQTT 底层 TCP socket 接收缓冲区（字节，对应 `SO_RCVBUF`）。默认值 8KB 在云边高延迟链路下会把 TCP 接收窗口卡死（吞吐上限 ~1.4MB/s），3.x 起默认提升到 1MB |
+
+> `CleanSession` 固定为 `true`（不可配置），原因见下方"断连问题修复记录"。
 
 ### 日志配置（Serilog）
 
@@ -121,6 +134,22 @@ DDM.SIS.M1_FH,DDM.SIS.M1_FH
 - 只有出现在点表中的测点才会被处理，其余一律丢弃
 - 两侧名称可以不同，支持跨库回写
 - 点表文件不存在时服务**启动即失败**，避免静默丢点
+
+## 断连问题修复记录（v2.10.0 → v3.0.1）
+
+> 背景：云边协同场景下，边缘节点经公网/高延迟链路连接云端 EMQX，write-to-trenddb 持续出现 **MQTT 断连 + 时序数据丢失**。2026-08 排查（运城边缘节点 write-to-trenddb MQTT 断连数据丢失排查报告已归档）后，按 **会话层 → 应用层 → 传输层** 三层依次修复。若再次遇到断连/丢数，按此表定位。
+
+| 版本 | 层级 | 根因 | 修复 |
+|---|---|---|---|
+| 2.10.0 | 会话 | QoS0 断线期间消息直接丢失，无任何暂存 | QoS1 + 持久会话（当时 `CleanSession=false`，后于 2.10.3 改回，见下） |
+| 2.10.1 | 会话 | 断线重连与首次连接逻辑纠缠，`already connected` 刷屏、重连竞态 | 重连加互斥与已连接守卫，首次连接（while 重试）与断线重连（Disconnected 事件）彻底分离 |
+| 2.10.3 | 会话 | `CleanSession=false` 导致 broker 侧 mqueue 积压，断线后重连循环 | **`CleanSession` 改回 `true`**（固定值，不可配置）。本服务消费模式为"最新值覆盖"（`ConcurrentDictionary` 缓冲），离线期间的旧值无回写价值，持久会话反而是拥塞源 |
+| 2.11.0 | 应用 | MQTTnet 收包回调里做反序列化 + 点表映射等重活，消费一慢就阻塞收包循环 → broker 侧 `send_pend` 堆积 → 触发 socket 超时断连 | **收包与消费解耦**：收包回调只拷贝 payload 入队（`System.Threading.Channels` 有界队列，满时 **DropOldest** 丢最旧保最新）立即返回；重活交给后台消费循环。丢弃计数 `_droppedMessageCount` 可观测 |
+| 3.0.1 | 传输 | TCP socket 接收缓冲区默认仅 8KB，在高延迟链路上把 TCP 接收窗口卡死在 ~14KB，吞吐上限 ~1.4MB/s，EMQX 发送队列堆积后 socket 超时断连 | **`SocketBufferSize` 默认提升到 1MB**（可配置），对应 MQTTnet `tcp.BufferSize` / `SO_RCVBUF` |
+
+**配套服务端调优**：EMQX 侧同步放大了监听器 `SNDBUF`/`RECBUF`（4MB）与 `BUFFER`（64KB）、`max_packet_size`（10MB，采集网关单条消息可达 ~2.4MB），见 `emqx` 仓库 v6.0.2。
+
+**排查口诀**：断连先看 EMQX 侧 `send_pend` 是否堆积（有 → 收包侧被阻塞，查应用层/传输层）；再看 broker mqueue 是否积压（有 → 会话层，`CleanSession` 问题）；最后看 TCP 窗口/缓冲是否过小（高延迟链路必备 3.0.1 + 服务端调优）。
 
 ## 环境变量覆盖（生产部署）
 
